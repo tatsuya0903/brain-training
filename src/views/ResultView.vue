@@ -1,9 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { mdiHome, mdiRefresh } from '@mdi/js'
+import { computed, ref } from 'vue'
+import { mdiHome, mdiRefresh, mdiShareVariant } from '@mdi/js'
 import { storeToRefs } from 'pinia'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
+import {
+  createSharedResultAnalysis,
+  createSharedResultPayload,
+} from '../domain/sharing/sharedResult'
+import {
+  decodeSharedResult,
+  encodeSharedResult,
+  MAX_PLAYER_NAME_LENGTH,
+} from '../domain/sharing/sharedResultCodec'
+import { shareResultUrl } from '../domain/sharing/shareResultUrl'
 import {
   analyzeTrainingResults,
   formatCarryDifference,
@@ -11,10 +21,70 @@ import {
 } from '../domain/training/resultAnalyzer'
 import { useTrainingStore } from '../stores/training'
 
+const route = useRoute()
 const router = useRouter()
 const trainingStore = useTrainingStore()
 const { results } = storeToRefs(trainingStore)
-const analysis = computed(() => analyzeTrainingResults(results.value))
+const localAnalysis = computed(() => analyzeTrainingResults(results.value))
+const playerName = ref('')
+const isSharing = ref(false)
+const notification = ref('')
+
+const shareParameter = computed(() => route.query.share)
+const hasShareParameter = computed(() => shareParameter.value !== undefined)
+const sharedPayload = computed(() => {
+  const parameter = shareParameter.value
+  return typeof parameter === 'string' ? decodeSharedResult(parameter) : null
+})
+const isSharedResult = computed(() => sharedPayload.value !== null)
+const hasDisplayResult = computed(() => isSharedResult.value || results.value.length > 0)
+const analysis = computed(() =>
+  sharedPayload.value ? createSharedResultAnalysis(sharedPayload.value) : localAnalysis.value,
+)
+
+const sharedResultHeading = computed(() => {
+  const name = sharedPayload.value?.playerName.trim()
+  return name ? `${name}さんの結果` : '共有された結果'
+})
+
+function createShareUrl(): string | null {
+  const payload = createSharedResultPayload(localAnalysis.value, playerName.value)
+
+  if (!payload) {
+    return null
+  }
+
+  const resolved = router.resolve({
+    name: 'result',
+    query: { share: encodeSharedResult(payload) },
+  })
+
+  return new URL(resolved.href, window.location.href).href
+}
+
+async function shareResult() {
+  const url = createShareUrl()
+
+  if (!url) {
+    notification.value = '共有URLを作成できませんでした'
+    return
+  }
+
+  isSharing.value = true
+  const outcome = await shareResultUrl(url, {
+    share: navigator.share?.bind(navigator),
+    writeClipboard: navigator.clipboard?.writeText.bind(navigator.clipboard),
+  })
+  isSharing.value = false
+
+  if (outcome === 'shared') {
+    notification.value = '成績を共有しました'
+  } else if (outcome === 'copied') {
+    notification.value = '共有URLをコピーしました'
+  } else if (outcome === 'failed') {
+    notification.value = '共有できませんでした。もう一度お試しください。'
+  }
+}
 
 function restartTraining() {
   trainingStore.startTraining()
@@ -29,9 +99,22 @@ function restartTraining() {
         <div class="text-center mb-6">
           <p class="text-overline text-primary mb-1">Training Complete</p>
           <h1 class="text-h4 font-weight-bold">トレーニング結果</h1>
+          <p v-if="isSharedResult" class="text-h6 mt-2 mb-0" data-testid="shared-result-heading">
+            {{ sharedResultHeading }}
+          </p>
         </div>
 
-        <template v-if="results.length > 0">
+        <v-alert
+          v-if="hasShareParameter && !isSharedResult"
+          type="warning"
+          variant="tonal"
+          rounded="lg"
+          data-testid="share-error"
+        >
+          この共有データは読み込めません。URLが正しいか確認してください。
+        </v-alert>
+
+        <template v-else-if="hasDisplayResult">
           <p class="text-h6 text-center font-weight-bold mb-4">
             {{ analysis.resultCount }}問の回答を集計しました
           </p>
@@ -92,6 +175,46 @@ function restartTraining() {
               </p>
             </v-alert>
           </section>
+
+          <template v-if="!isSharedResult">
+            <v-divider class="my-6" />
+
+            <section aria-labelledby="share-heading">
+              <h2 id="share-heading" class="text-subtitle-1 font-weight-bold mb-3">成績を共有</h2>
+              <v-text-field
+                v-model="playerName"
+                label="プレイヤー名"
+                :maxlength="MAX_PLAYER_NAME_LENGTH"
+                counter
+                autocomplete="name"
+              />
+              <p class="text-caption text-medium-emphasis mt-n2 mb-4">
+                共有URLは暗号化されておらず、値を変更できます。個人情報は入力しないでください。
+              </p>
+              <v-btn
+                block
+                color="secondary"
+                data-testid="share-button"
+                size="large"
+                :loading="isSharing"
+                :prepend-icon="mdiShareVariant"
+                @click="shareResult"
+              >
+                成績を共有
+              </v-btn>
+              <v-alert
+                v-if="notification"
+                class="mt-3"
+                density="compact"
+                type="info"
+                variant="tonal"
+                role="status"
+                data-testid="share-notification"
+              >
+                {{ notification }}
+              </v-alert>
+            </section>
+          </template>
         </template>
 
         <template v-else>
@@ -105,7 +228,7 @@ function restartTraining() {
 
         <div class="result-actions mt-6">
           <v-btn
-            v-if="results.length > 0"
+            v-if="hasDisplayResult"
             block
             color="primary"
             size="large"
