@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Brain Training">
+  <rect width="512" height="512" rx="112" fill="#6750a4"/>
+  <path d="M256 104c-35-44-108-20-108 36-44 4-59 61-25 87-29 43 2 93 50 90 7 52 70 71 101 31 30 40 94 21 101-31 48 3 79-47 50-90 34-26 19-83-25-87 0-56-73-80-108-36-10-7-26-7-36 0Z" fill="#fdf8ff"/>
+  <path d="M256 112v236M193 151c-28 21-20 65 14 75M177 275c29-13 59 8 59 38M319 151c28 21 20 65-14 75M335 275c-29-13-59 8-59 38" fill="none" stroke="#6750a4" stroke-linecap="round" stroke-width="22"/>
+</svg>
