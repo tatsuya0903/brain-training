@@ -1,5 +1,16 @@
 <script setup lang="ts">
 import { mdiBrain, mdiPlay } from '@mdi/js'
+import { useRouter } from 'vue-router'
+
+import { useTrainingStore } from '../stores/training'
+
+const router = useRouter()
+const trainingStore = useTrainingStore()
+
+function startTraining() {
+  trainingStore.startTraining()
+  void router.push('/training')
+}
 </script>
 
 <template>
@@ -11,7 +22,7 @@ import { mdiBrain, mdiPlay } from '@mdi/js'
         <p class="text-body-1 text-medium-emphasis mt-4 mb-8">
           10問の暗算に挑戦して、計算スピードを鍛えましょう。
         </p>
-        <v-btn block color="primary" size="x-large" :prepend-icon="mdiPlay" to="/training">
+        <v-btn block color="primary" size="x-large" :prepend-icon="mdiPlay" @click="startTraining">
           トレーニング開始
         </v-btn>
       </v-card>

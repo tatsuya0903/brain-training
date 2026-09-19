@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import { createPinia } from 'pinia'
 import { mount } from '@vue/test-utils'
 import App from '../App.vue'
 import vuetify from '../plugins/vuetify'
@@ -11,7 +12,7 @@ async function mountTrainingView() {
 
   return mount(App, {
     global: {
-      plugins: [router, vuetify],
+      plugins: [createPinia(), router, vuetify],
     },
   })
 }
@@ -58,6 +59,17 @@ describe('TrainingView number pad', () => {
 
     await wrapper.get('[aria-label="1文字削除"]').trigger('click')
 
+    expect(answerText(wrapper)).toBe('未入力')
+  })
+
+  it('keeps the current question and clears the answer after an incorrect submission', async () => {
+    const wrapper = await mountTrainingView()
+    const initialProblem = wrapper.get('[data-testid="problem"]').text()
+
+    await wrapper.get('[aria-label="0を入力"]').trigger('click')
+    await wrapper.get('[aria-label="回答を決定"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="problem"]').text()).toBe(initialProblem)
     expect(answerText(wrapper)).toBe('未入力')
   })
 })

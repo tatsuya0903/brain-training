@@ -1,22 +1,34 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeMount } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
+
 import NumberPad from '../components/NumberPad.vue'
+import { useTrainingStore } from '../stores/training'
 
 const router = useRouter()
-const answer = ref('')
+const trainingStore = useTrainingStore()
+const {
+  currentAnswer,
+  currentQuestion,
+  currentQuestionNumber,
+  isCompleted,
+  progress,
+  totalQuestions,
+} = storeToRefs(trainingStore)
 
-function appendDigit(digit: string) {
-  answer.value += digit
-}
+onBeforeMount(() => {
+  if (totalQuestions.value === 0 || isCompleted.value) {
+    trainingStore.startTraining()
+  }
+})
 
-function deleteLastDigit() {
-  answer.value = answer.value.slice(0, -1)
-}
+function submitAnswer() {
+  const result = trainingStore.submitAnswer()
 
-function submitTemporaryResult() {
-  // Issue #2では画面遷移のみ。正誤判定やゲーム進行はIssue #3で置き換える。
-  void router.push('/result')
+  if (result === 'completed') {
+    void router.push('/result')
+  }
 }
 </script>
 
@@ -26,13 +38,15 @@ function submitTemporaryResult() {
       <v-card class="pa-4 pa-sm-6" elevation="3" rounded="xl">
         <header>
           <div class="d-flex align-center justify-space-between mb-2">
-            <p class="text-subtitle-1 font-weight-bold mb-0">問題 1 / 10</p>
-            <p class="text-caption text-medium-emphasis mb-0">全10問</p>
+            <p class="text-subtitle-1 font-weight-bold mb-0">
+              問題 {{ currentQuestionNumber }} / {{ totalQuestions }}
+            </p>
+            <p class="text-caption text-medium-emphasis mb-0">全{{ totalQuestions }}問</p>
           </div>
           <v-progress-linear
             aria-label="トレーニング進捗"
             color="primary"
-            :model-value="10"
+            :model-value="progress"
             rounded
             height="10"
           />
@@ -40,15 +54,25 @@ function submitTemporaryResult() {
 
         <section class="problem-area text-center" aria-labelledby="problem-heading">
           <p id="problem-heading" class="text-caption text-medium-emphasis mb-2">暗算問題</p>
-          <p class="problem-text font-weight-bold mb-5">47 + 28</p>
+          <p
+            v-if="currentQuestion"
+            class="problem-text font-weight-bold mb-5"
+            data-testid="problem"
+          >
+            {{ currentQuestion.leftOperand }} + {{ currentQuestion.rightOperand }}
+          </p>
           <p class="text-caption text-medium-emphasis mb-1">入力中の回答</p>
           <div class="answer-display" aria-live="polite" aria-label="入力中の回答">
-            <span v-if="answer">{{ answer }}</span>
+            <span v-if="currentAnswer">{{ currentAnswer }}</span>
             <span v-else class="answer-placeholder">未入力</span>
           </div>
         </section>
 
-        <NumberPad @digit="appendDigit" @delete="deleteLastDigit" @submit="submitTemporaryResult" />
+        <NumberPad
+          @digit="trainingStore.appendDigit"
+          @delete="trainingStore.deleteLastDigit"
+          @submit="submitAnswer"
+        />
       </v-card>
     </v-container>
   </v-main>
