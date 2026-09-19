@@ -22,10 +22,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: package.json
           cache: npm
@@ -59,16 +59,22 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: package.json
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      # checkジョブとは別のrunnerなので、distは引き継がれない。
+      # PlaywrightのwebServerが vite preview を使用するため、
+      # E2Eジョブ内でもproduction buildを生成する。
+      - name: Build for E2E
+        run: npm run build-only
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
