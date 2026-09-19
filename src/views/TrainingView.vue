@@ -34,11 +34,11 @@ function submitAnswer() {
 
 <template>
   <v-main class="training-background">
-    <v-container class="training-container py-4 py-sm-8">
-      <v-card class="pa-4 pa-sm-6" elevation="3" rounded="xl">
+    <v-container class="training-container">
+      <v-card class="training-card" elevation="3" rounded="xl">
         <header>
-          <div class="d-flex align-center justify-space-between mb-2">
-            <p class="text-subtitle-1 font-weight-bold mb-0">
+          <div class="progress-heading">
+            <p class="question-count font-weight-bold mb-0">
               問題 {{ currentQuestionNumber }} / {{ totalQuestions }}
             </p>
             <p class="text-caption text-medium-emphasis mb-0">全{{ totalQuestions }}問</p>
@@ -48,20 +48,18 @@ function submitAnswer() {
             color="primary"
             :model-value="progress"
             rounded
-            height="10"
+            height="8"
           />
         </header>
 
         <section class="problem-area text-center" aria-labelledby="problem-heading">
-          <p id="problem-heading" class="text-caption text-medium-emphasis mb-2">暗算問題</p>
-          <p
-            v-if="currentQuestion"
-            class="problem-text font-weight-bold mb-5"
-            data-testid="problem"
-          >
+          <p id="problem-heading" class="problem-label text-caption text-medium-emphasis">
+            暗算問題
+          </p>
+          <p v-if="currentQuestion" class="problem-text font-weight-bold" data-testid="problem">
             {{ currentQuestion.leftOperand }} + {{ currentQuestion.rightOperand }}
           </p>
-          <p class="text-caption text-medium-emphasis mb-1">入力中の回答</p>
+          <p class="answer-label text-caption text-medium-emphasis">入力中の回答</p>
           <div class="answer-display" aria-live="polite" aria-label="入力中の回答">
             <span v-if="currentAnswer">{{ currentAnswer }}</span>
             <span v-else class="answer-placeholder">未入力</span>
@@ -80,6 +78,8 @@ function submitAnswer() {
 
 <style scoped>
 .training-background {
+  min-height: 100vh;
+  min-height: 100svh;
   min-height: 100dvh;
   background: #f7f2fb;
 }
@@ -87,13 +87,36 @@ function submitAnswer() {
 .training-container {
   width: 100%;
   max-width: 520px;
+  padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+    max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+}
+
+.training-card {
+  padding: clamp(12px, 2.5dvh, 24px);
+}
+
+.progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.question-count {
+  font-size: clamp(1rem, 4.5vw, 1.125rem);
 }
 
 .problem-area {
-  padding: clamp(1.5rem, 6vh, 3.5rem) 0;
+  padding: clamp(10px, 2.6dvh, 24px) 0;
+}
+
+.problem-label,
+.answer-label {
+  margin: 0 0 4px;
 }
 
 .problem-text {
+  margin: 0 0 clamp(8px, 2dvh, 18px);
   font-size: clamp(2.25rem, 12vw, 3.75rem);
   line-height: 1.1;
   letter-spacing: 0.03em;
@@ -103,7 +126,8 @@ function submitAnswer() {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 64px;
+  min-height: clamp(50px, 9dvh, 64px);
+  padding: 4px 12px;
   overflow-wrap: anywhere;
   border: 2px solid rgb(var(--v-theme-primary));
   border-radius: 12px;
@@ -117,16 +141,5 @@ function submitAnswer() {
   color: rgb(var(--v-theme-on-surface), 0.38);
   font-size: 1rem;
   font-weight: 400;
-}
-
-@media (max-width: 359px) {
-  .training-container {
-    padding-right: 8px;
-    padding-left: 8px;
-  }
-
-  .problem-area {
-    padding: 1.25rem 0;
-  }
 }
 </style>

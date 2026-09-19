@@ -94,9 +94,9 @@ function restartTraining() {
 
 <template>
   <v-main class="result-background">
-    <v-container class="result-container py-6 py-sm-10">
-      <v-card class="pa-5 pa-sm-8" elevation="4" rounded="xl">
-        <div class="text-center mb-6">
+    <v-container class="result-container">
+      <v-card class="result-card" elevation="4" rounded="xl">
+        <div class="result-heading text-center">
           <p class="text-overline text-primary mb-1">Training Complete</p>
           <h1 class="text-h4 font-weight-bold">トレーニング結果</h1>
           <p v-if="isSharedResult" class="text-h6 mt-2 mb-0" data-testid="shared-result-heading">
@@ -248,6 +248,8 @@ function restartTraining() {
 
 <style scoped>
 .result-background {
+  min-height: 100vh;
+  min-height: 100svh;
   min-height: 100dvh;
   background: linear-gradient(160deg, #fdf8ff 0%, #f1e8ff 100%);
 }
@@ -255,6 +257,16 @@ function restartTraining() {
 .result-container {
   width: 100%;
   max-width: 600px;
+  padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+
+.result-card {
+  padding: clamp(20px, 5vw, 32px);
+}
+
+.result-heading {
+  margin-bottom: clamp(20px, 5vw, 24px);
 }
 
 .result-actions {
@@ -290,6 +302,7 @@ function restartTraining() {
   margin: 4px 0 0;
   font-size: 1.125rem;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .comparison-grid {
@@ -311,6 +324,11 @@ function restartTraining() {
 
   .comparison-grid {
     grid-template-columns: 1fr;
+  }
+
+  .metric-card,
+  .comparison-grid > div {
+    padding: 12px 10px;
   }
 }
 </style>

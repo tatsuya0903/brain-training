@@ -15,7 +15,16 @@ export default defineConfig({
     vueDevTools(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'pwa.svg'],
+      includeAssets: [
+        'favicon.ico',
+        'pwa.svg',
+        'pwa-192x192.png',
+        'pwa-512x512.png',
+        'apple-touch-icon.png',
+      ],
+      workbox: {
+        cleanupOutdatedCaches: true,
+      },
       manifest: {
         name: 'Brain Training',
         short_name: 'Brain Training',
@@ -28,10 +37,22 @@ export default defineConfig({
         scope: '/brain-training/',
         icons: [
           {
-            src: 'pwa.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any maskable',
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
           },
         ],
       },

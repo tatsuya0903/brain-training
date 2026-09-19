@@ -18,7 +18,6 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
       class="number-key"
       color="surface"
       elevation="2"
-      size="x-large"
       :aria-label="`${digit}を入力`"
       @click="emit('digit', digit)"
     >
@@ -26,10 +25,10 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
     </v-btn>
 
     <v-btn
-      class="number-key"
-      color="surface-variant"
+      class="number-key delete-key"
+      color="error"
       elevation="2"
-      size="x-large"
+      variant="tonal"
       aria-label="1文字削除"
       @click="emit('delete')"
     >
@@ -39,17 +38,15 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
       class="number-key"
       color="surface"
       elevation="2"
-      size="x-large"
       aria-label="0を入力"
       @click="emit('digit', '0')"
     >
       0
     </v-btn>
     <v-btn
-      class="number-key font-weight-bold"
+      class="number-key submit-key font-weight-bold"
       color="primary"
-      elevation="2"
-      size="x-large"
+      elevation="3"
       aria-label="回答を決定"
       @click="emit('submit')"
     >
@@ -62,23 +59,38 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
 .number-pad {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: clamp(6px, 1.5dvh, 12px);
   width: 100%;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .number-key {
   min-width: 0;
-  min-height: 64px;
-  font-size: 1.35rem;
+  min-height: clamp(54px, 10dvh, 68px);
+  font-size: clamp(1.2rem, 6vw, 1.4rem);
+  touch-action: manipulation;
+  transition:
+    transform 70ms ease,
+    filter 70ms ease;
 }
 
-@media (min-width: 600px) {
-  .number-pad {
-    gap: 12px;
-  }
+.number-key:active {
+  transform: scale(0.96);
+  filter: brightness(0.9);
+}
 
-  .number-key {
-    min-height: 68px;
-  }
+.number-key:focus-visible {
+  outline: 3px solid rgb(var(--v-theme-primary), 0.45);
+  outline-offset: 2px;
+}
+
+.delete-key {
+  border: 1px solid rgb(var(--v-theme-error), 0.35);
+}
+
+.submit-key {
+  letter-spacing: 0.04em;
 }
 </style>
