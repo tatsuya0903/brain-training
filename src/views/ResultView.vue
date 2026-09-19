@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { mdiRefresh, mdiShareVariant } from '@mdi/js'
+import { mdiHome, mdiRefresh } from '@mdi/js'
+import { storeToRefs } from 'pinia'
+import { useRouter } from 'vue-router'
 
-const resultItems = [
-  { label: '合計回答時間', value: '18.42秒' },
-  { label: '平均回答時間', value: '1.84秒' },
-  { label: '最短回答時間', value: '1.12秒' },
-  { label: '繰り上がりなし', value: '平均 1.61秒' },
-  { label: '繰り上がりあり', value: '平均 2.07秒' },
-]
+import { useTrainingStore } from '../stores/training'
+
+const router = useRouter()
+const trainingStore = useTrainingStore()
+const { results } = storeToRefs(trainingStore)
+
+function restartTraining() {
+  trainingStore.startTraining()
+  void router.push('/training')
+}
 </script>
 
 <template>
@@ -19,30 +24,34 @@ const resultItems = [
           <h1 class="text-h4 font-weight-bold">トレーニング結果</h1>
         </div>
 
-        <v-list class="result-list pa-0" lines="one">
-          <v-list-item v-for="item in resultItems" :key="item.label" class="px-3">
-            <template #title>
-              <span class="text-body-2 text-medium-emphasis">{{ item.label }}</span>
-            </template>
-            <template #append>
-              <span class="font-weight-bold">{{ item.value }}</span>
-            </template>
-          </v-list-item>
-        </v-list>
-
-        <v-card class="mt-5 pa-4" color="primary-lighten-5" variant="tonal" rounded="lg">
-          <h2 class="text-subtitle-1 font-weight-bold mb-2">考察</h2>
-          <p class="text-body-2 mb-0">
-            繰り上がりのある問題では、少し時間がかかる傾向がありました。
-          </p>
+        <v-card class="pa-5 text-center" color="primary-lighten-5" variant="tonal" rounded="lg">
+          <template v-if="results.length > 0">
+            <p class="text-h5 font-weight-bold mb-2">{{ results.length }}問の回答を記録しました</p>
+            <p class="text-body-2 text-medium-emphasis mb-0">
+              回答時間と問題情報の詳しい集計は、次の実装で表示します。
+            </p>
+          </template>
+          <template v-else>
+            <p class="text-h6 font-weight-bold mb-2">まだ結果がありません</p>
+            <p class="text-body-2 text-medium-emphasis mb-0">
+              ホームからトレーニングを開始してください。
+            </p>
+          </template>
         </v-card>
 
         <div class="result-actions mt-6">
-          <v-btn block color="primary" size="large" :prepend-icon="mdiRefresh" to="/training">
+          <v-btn
+            v-if="results.length > 0"
+            block
+            color="primary"
+            size="large"
+            :prepend-icon="mdiRefresh"
+            @click="restartTraining"
+          >
             もう一度挑戦する
           </v-btn>
-          <v-btn block size="large" :prepend-icon="mdiShareVariant" variant="outlined">
-            成績を共有する
+          <v-btn v-else block color="primary" size="large" :prepend-icon="mdiHome" to="/">
+            ホームへ戻る
           </v-btn>
         </div>
       </v-card>
@@ -59,16 +68,6 @@ const resultItems = [
 .result-container {
   width: 100%;
   max-width: 600px;
-}
-
-.result-list {
-  overflow: hidden;
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  border-radius: 12px;
-}
-
-.result-list :deep(.v-list-item + .v-list-item) {
-  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 
 .result-actions {
