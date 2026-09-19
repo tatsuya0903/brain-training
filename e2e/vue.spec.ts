@@ -23,7 +23,21 @@ async function displayedSeconds(page: Page, testId: string) {
   return seconds
 }
 
-test('completes all ten questions and starts a new training', async ({ page }) => {
+test('completes, shares, restores the result, and starts a new training', async ({
+  page,
+  context,
+}) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: undefined })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (url: string) => {
+          ;(window as Window & { __sharedResultUrl?: string }).__sharedResultUrl = url
+        },
+      },
+    })
+  })
   await page.goto('./#/')
 
   await expect(page.getByRole('heading', { name: '暗算トレーニング' })).toBeVisible()
@@ -71,11 +85,54 @@ test('completes all ten questions and starts a new training', async ({ page }) =
   expect(Math.abs(totalSeconds - averageSeconds * 10)).toBeLessThanOrEqual(0.06)
   await expect(page.getByTestId('carry-difference')).toContainText('繰り上がり')
 
+  const displayedResult = {
+    total: await page.getByTestId('total-time').innerText(),
+    average: await page.getByTestId('average-time').innerText(),
+    best: await page.getByTestId('best-time').innerText(),
+    noCarry: await page.getByTestId('no-carry-average').innerText(),
+    carry: await page.getByTestId('carry-average').innerText(),
+    difference: await page.getByTestId('carry-difference').innerText(),
+  }
+
+  await page.getByLabel('プレイヤー名').fill('広島の父')
+  await page.getByRole('button', { name: '成績を共有' }).click()
+  await expect(page.getByRole('status')).toContainText('共有URLをコピーしました')
+
+  const sharedUrl = await page.evaluate(
+    () => (window as Window & { __sharedResultUrl?: string }).__sharedResultUrl,
+  )
+  expect(sharedUrl).toBeTruthy()
+  expect(sharedUrl).toContain('/brain-training/#/result?share=')
+
+  const sharedPage = await context.newPage()
+  await sharedPage.goto(sharedUrl!)
+  await expect(sharedPage.getByTestId('shared-result-heading')).toHaveText('広島の父さんの結果')
+  await expect(sharedPage.getByTestId('total-time')).toHaveText(displayedResult.total)
+  await expect(sharedPage.getByTestId('average-time')).toHaveText(displayedResult.average)
+  await expect(sharedPage.getByTestId('best-time')).toHaveText(displayedResult.best)
+  await expect(sharedPage.getByTestId('no-carry-average')).toHaveText(displayedResult.noCarry)
+  await expect(sharedPage.getByTestId('carry-average')).toHaveText(displayedResult.carry)
+  await expect(sharedPage.getByTestId('carry-difference')).toHaveText(displayedResult.difference)
+  await sharedPage.reload()
+  await expect(sharedPage.getByTestId('shared-result-heading')).toHaveText('広島の父さんの結果')
+  await sharedPage.getByRole('button', { name: 'もう一度挑戦する' }).click()
+  await expect(sharedPage).toHaveURL(/#\/training$/)
+  await expect(sharedPage.getByText('問題 1 / 10')).toBeVisible()
+  await sharedPage.close()
+
   await page.getByRole('button', { name: 'もう一度挑戦する' }).click()
   await expect(page).toHaveURL(/#\/training$/)
   await expect(page.getByText('問題 1 / 10')).toBeVisible()
   await expect(page.getByTestId('problem')).toBeVisible()
   await expect(page.getByLabel('入力中の回答')).toHaveText('未入力')
+})
+
+test('shows a safe state for a broken shared result URL', async ({ page }) => {
+  await page.goto('./#/result?share=broken-value')
+
+  await expect(page.getByRole('heading', { name: 'トレーニング結果' })).toBeVisible()
+  await expect(page.getByTestId('share-error')).toContainText('この共有データは読み込めません')
+  await expect(page.getByRole('link', { name: 'ホームへ戻る' })).toBeVisible()
 })
 
 test('keeps the main UI within responsive viewport widths', async ({ page }) => {
