@@ -15,6 +15,14 @@ async function answerCurrentQuestion(page: Page) {
   await page.getByRole('button', { name: '回答を決定' }).click()
 }
 
+async function displayedSeconds(page: Page, testId: string) {
+  const text = await page.getByTestId(testId).innerText()
+  const seconds = Number.parseFloat(text.replace('秒', ''))
+
+  expect(Number.isFinite(seconds)).toBe(true)
+  return seconds
+}
+
 test('completes all ten questions and starts a new training', async ({ page }) => {
   await page.goto('./#/')
 
@@ -40,7 +48,28 @@ test('completes all ten questions and starts a new training', async ({ page }) =
 
   await expect(page).toHaveURL(/#\/result$/)
   await expect(page.getByRole('heading', { name: 'トレーニング結果' })).toBeVisible()
-  await expect(page.getByText('10問の回答を記録しました')).toBeVisible()
+  await expect(page.getByText('10問の回答を集計しました')).toBeVisible()
+
+  await expect(page.getByText('合計回答時間', { exact: true })).toBeVisible()
+  await expect(page.getByText('平均回答時間', { exact: true })).toBeVisible()
+  await expect(page.getByText('最短回答時間', { exact: true })).toBeVisible()
+  await expect(page.getByText('繰り上がりなし平均', { exact: true })).toBeVisible()
+  await expect(page.getByText('繰り上がりあり平均', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '考察' })).toBeVisible()
+  await expect(page.getByTestId('insight')).toBeVisible()
+  await expect(
+    page.getByText('回答時間と問題情報の詳しい集計は、次の実装で表示します。'),
+  ).toHaveCount(0)
+
+  const totalSeconds = await displayedSeconds(page, 'total-time')
+  const averageSeconds = await displayedSeconds(page, 'average-time')
+  const bestSeconds = await displayedSeconds(page, 'best-time')
+
+  expect(totalSeconds).toBeGreaterThan(0)
+  expect(averageSeconds).toBeGreaterThan(0)
+  expect(bestSeconds).toBeGreaterThanOrEqual(0)
+  expect(Math.abs(totalSeconds - averageSeconds * 10)).toBeLessThanOrEqual(0.06)
+  await expect(page.getByTestId('carry-difference')).toContainText('繰り上がり')
 
   await page.getByRole('button', { name: 'もう一度挑戦する' }).click()
   await expect(page).toHaveURL(/#\/training$/)
