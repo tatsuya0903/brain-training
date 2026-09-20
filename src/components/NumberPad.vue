@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { mdiBackspaceOutline } from '@mdi/js'
 
+defineProps<{ disabled?: boolean }>()
+
 const emit = defineEmits<{
   digit: [value: string]
   delete: []
@@ -16,6 +18,7 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
       v-for="digit in digits"
       :key="digit"
       class="number-key"
+      :disabled="disabled"
       color="surface"
       elevation="2"
       :aria-label="`${digit}を入力`"
@@ -26,6 +29,7 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
 
     <v-btn
       class="number-key delete-key"
+      :disabled="disabled"
       color="error"
       elevation="2"
       variant="tonal"
@@ -36,6 +40,7 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
     </v-btn>
     <v-btn
       class="number-key"
+      :disabled="disabled"
       color="surface"
       elevation="2"
       aria-label="0を入力"
@@ -45,6 +50,7 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
     </v-btn>
     <v-btn
       class="number-key submit-key font-weight-bold"
+      :disabled="disabled"
       color="primary"
       elevation="3"
       aria-label="回答を決定"
@@ -92,5 +98,14 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
 
 .submit-key {
   letter-spacing: 0.04em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .number-key {
+    transition: none;
+  }
+  .number-key:active {
+    transform: none;
+  }
 }
 </style>

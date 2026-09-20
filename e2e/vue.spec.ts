@@ -17,6 +17,11 @@ async function answerCurrentQuestion(page: Page) {
   await page.getByRole('button', { name: '回答を決定' }).click()
 }
 
+async function expectCorrectFeedback(page: Page) {
+  await expect(page.getByTestId('answer-feedback')).toContainText('正解！')
+  await expect(page.getByTestId('correct-time')).toHaveText(/^\d+\.\d{2}秒\s*$/u)
+}
+
 async function displayedSeconds(page: Page, testId: string) {
   const text = await page.getByTestId(testId).innerText()
   const seconds = Number.parseFloat(text.replace('秒', ''))
@@ -39,6 +44,14 @@ test('completes, shares, restores the result, and starts a new training', async 
   context,
 }) => {
   await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'vibrate', {
+      configurable: true,
+      value: (pattern: VibratePattern) => {
+        ;(window as Window & { __vibrations?: VibratePattern[] }).__vibrations ??= []
+        ;(window as Window & { __vibrations: VibratePattern[] }).__vibrations.push(pattern)
+        return true
+      },
+    })
     Object.defineProperty(navigator, 'share', { configurable: true, value: undefined })
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -56,20 +69,49 @@ test('completes, shares, restores the result, and starts a new training', async 
   await page.getByRole('button', { name: 'トレーニング開始' }).click()
   await expect(page).toHaveURL(/#\/training$/)
   await expect(page.getByText('問題 1 / 10')).toBeVisible()
+  await expect(page.getByLabel('トレーニング進捗')).toHaveAttribute('aria-valuetext', '1 / 10')
+  await expect(page.locator('.progress-segment.active')).toHaveCount(1)
+  await expect(page.getByTestId('elapsed-time')).toHaveText(/^\d+\.\d秒\s*$/u)
 
   await page.getByRole('button', { name: '0を入力' }).click()
   await page.getByRole('button', { name: '回答を決定' }).click()
+  await expect(page.getByTestId('answer-feedback')).toContainText('不正解')
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as Window & { __vibrations?: VibratePattern[] }).__vibrations?.at(-1),
+      ),
+    )
+    .toEqual([15, 40, 15])
   await expect(page.getByText('問題 1 / 10')).toBeVisible()
   await expect(page.getByLabel('入力中の回答')).toHaveText('未入力')
 
-  for (let questionNumber = 1; questionNumber <= 10; questionNumber += 1) {
+  await answerCurrentQuestion(page)
+  await expectCorrectFeedback(page)
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as Window & { __vibrations?: VibratePattern[] }).__vibrations?.at(-1),
+      ),
+    )
+    .toBe(30)
+  await expect(page.getByText('問題 2 / 10')).toBeVisible()
+
+  for (let questionNumber = 2; questionNumber <= 9; questionNumber += 1) {
     await expect(page.getByText(`問題 ${questionNumber} / 10`)).toBeVisible()
     await expect(page.getByLabel('トレーニング進捗')).toHaveAttribute(
       'aria-valuenow',
-      String(questionNumber * 10),
+      String(questionNumber),
     )
+    await expect(page.locator('.progress-segment.active')).toHaveCount(questionNumber)
     await answerCurrentQuestion(page)
+    await expectCorrectFeedback(page)
+    await expect(page.getByText(`問題 ${questionNumber + 1} / 10`)).toBeVisible()
   }
+  await expect(page.getByText('問題 10 / 10')).toBeVisible()
+  await expect(page.locator('.progress-segment.active')).toHaveCount(10)
+  await answerCurrentQuestion(page)
+  await expectCorrectFeedback(page)
 
   await expect(page).toHaveURL(/#\/result$/)
   await expect(page.getByRole('heading', { name: 'トレーニング結果' })).toBeVisible()
@@ -105,9 +147,13 @@ test('completes, shares, restores the result, and starts a new training', async 
     difference: await page.getByTestId('carry-difference').innerText(),
   }
 
-  await page.getByLabel('プレイヤー名').fill('広島の父')
   await page.getByRole('button', { name: '成績を共有' }).click()
+  await expect(page.getByRole('dialog', { name: '成績を共有' })).toBeVisible()
+  await page.getByLabel('プレイヤー名').fill('広島の父')
+  await page.getByRole('button', { name: '共有する' }).click()
   await expect(page.getByRole('status')).toContainText('共有URLをコピーしました')
+  await page.getByRole('button', { name: '閉じる' }).click()
+  await expect(page.getByRole('dialog', { name: '成績を共有' })).toBeHidden()
 
   const sharedUrl = await page.evaluate(
     () => (window as Window & { __sharedResultUrl?: string }).__sharedResultUrl,
@@ -136,6 +182,41 @@ test('completes, shares, restores the result, and starts a new training', async 
   await expect(page.getByText('問題 1 / 10')).toBeVisible()
   await expect(page.getByTestId('problem')).toBeVisible()
   await expect(page.getByLabel('入力中の回答')).toHaveText('未入力')
+})
+
+test('keeps completed local results within target mobile viewports', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('./#/')
+  await page.getByRole('button', { name: 'トレーニング開始' }).click()
+
+  for (let questionNumber = 1; questionNumber <= 9; questionNumber += 1) {
+    await answerCurrentQuestion(page)
+    await expectCorrectFeedback(page)
+    await expect(page.getByText(`問題 ${questionNumber + 1} / 10`)).toBeVisible()
+  }
+  await answerCurrentQuestion(page)
+  await expectCorrectFeedback(page)
+
+  await expect(page).toHaveURL(/#\/result$/)
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 393, height: 852 },
+    { width: 430, height: 932 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await expect(page.getByTestId('total-time')).toBeVisible()
+    await expect(page.getByTestId('carry-difference')).toBeVisible()
+    await expect(page.getByTestId('insight')).toBeVisible()
+    await expect(page.getByRole('button', { name: '成績を共有' })).toBeVisible()
+    const retry = page.getByRole('button', { name: 'もう一度挑戦する' })
+    await expect(retry).toBeVisible()
+    const box = await retry.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 2)
+    const height = await page.evaluate(() => document.documentElement.scrollHeight)
+    expect(height).toBeLessThanOrEqual(viewport.height + 2)
+    await expectNoHorizontalOverflow(page)
+  }
 })
 
 test('shows a safe state for a broken shared result URL', async ({ page }) => {

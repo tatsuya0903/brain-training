@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 
 import App from '../App.vue'
 import {
@@ -68,6 +68,8 @@ const sharedPayload: SharedResultPayload = {
   carryMinusNoCarryMs: 400,
 }
 
+let mountedWrappers: VueWrapper[] = []
+
 async function mountResultView(storedResults: QuestionResult[], share?: string) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -77,21 +79,43 @@ async function mountResultView(storedResults: QuestionResult[], share?: string) 
   await router.push({ path: '/result', query: share === undefined ? {} : { share } })
   await router.isReady()
 
-  return mount(App, {
+  const wrapper = mount(App, {
+    attachTo: document.body,
     global: {
       plugins: [pinia, router, vuetify],
     },
   })
+  mountedWrappers.push(wrapper)
+  return wrapper
 }
 
 describe('ResultView', () => {
   beforeEach(async () => {
+    mountedWrappers = []
+    vi.stubGlobal('visualViewport', {
+      width: 1024,
+      height: 768,
+      offsetLeft: 0,
+      offsetTop: 0,
+      pageLeft: 0,
+      pageTop: 0,
+      scale: 1,
+      addEventListener:
+        vi.fn<(type: string, listener: EventListenerOrEventListenerObject) => void>(),
+      removeEventListener:
+        vi.fn<(type: string, listener: EventListenerOrEventListenerObject) => void>(),
+    })
     await router.push('/')
   })
 
   afterEach(() => {
+    for (const wrapper of mountedWrappers) wrapper.unmount()
     vi.unstubAllGlobals()
   })
+
+  function body() {
+    return new DOMWrapper(document.body)
+  }
 
   it('displays the aggregate, carry comparison, and insight from stored results', async () => {
     const wrapper = await mountResultView(results)
@@ -105,7 +129,7 @@ describe('ResultView', () => {
       '繰り上がりありの方が0.60秒長い',
     )
     expect(wrapper.get('[data-testid="insight"]').text()).toContain('繰り上がりありの問題は')
-    expect(wrapper.get('input')).toBeTruthy()
+    expect(wrapper.find('input').exists()).toBe(false)
     expect(wrapper.get('button').text()).toBeTruthy()
   })
 
@@ -118,7 +142,9 @@ describe('ResultView', () => {
 
   it('lets the player enter a name in the sharing UI', async () => {
     const wrapper = await mountResultView(results)
-    const input = wrapper.get('input')
+    await wrapper.get('[data-testid="open-share-button"]').trigger('click')
+    await flushPromises()
+    const input = body().get('input')
 
     await input.setValue('たつや')
 
@@ -166,13 +192,15 @@ describe('ResultView', () => {
     vi.stubGlobal('navigator', { share, clipboard: { writeText } })
     const wrapper = await mountResultView(results)
 
-    await wrapper.get('input').setValue('太郎')
-    await wrapper.get('[data-testid="share-button"]').trigger('click')
+    await wrapper.get('[data-testid="open-share-button"]').trigger('click')
+    await flushPromises()
+    await body().get('input').setValue('太郎')
+    await body().get('[data-testid="share-button"]').trigger('click')
     await flushPromises()
 
     expect(share).toHaveBeenCalledOnce()
     expect(writeText).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('成績を共有しました')
+    expect(body().text()).toContain('成績を共有しました')
     const sharedUrlValue = share.mock.calls[0]![0].url
     expect(sharedUrlValue).toEqual(expect.any(String))
 
@@ -190,12 +218,14 @@ describe('ResultView', () => {
     const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { clipboard: { writeText } })
     const wrapper = await mountResultView(results)
+    await wrapper.get('[data-testid="open-share-button"]').trigger('click')
+    await flushPromises()
 
-    await wrapper.get('[data-testid="share-button"]').trigger('click')
+    await body().get('[data-testid="share-button"]').trigger('click')
     await flushPromises()
 
     expect(writeText).toHaveBeenCalledOnce()
-    expect(wrapper.text()).toContain('共有URLをコピーしました')
+    expect(body().text()).toContain('共有URLをコピーしました')
   })
 
   it('does not show a fatal error when the share sheet is cancelled', async () => {
@@ -207,11 +237,13 @@ describe('ResultView', () => {
       clipboard: { writeText: vi.fn<(text: string) => Promise<void>>() },
     })
     const wrapper = await mountResultView(results)
-
-    await wrapper.get('[data-testid="share-button"]').trigger('click')
+    await wrapper.get('[data-testid="open-share-button"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('共有できませんでした')
+    await body().get('[data-testid="share-button"]').trigger('click')
+    await flushPromises()
+
+    expect(body().text()).not.toContain('共有できませんでした')
   })
 })
 

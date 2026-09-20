@@ -28,6 +28,7 @@ const { results } = storeToRefs(trainingStore)
 const localAnalysis = computed(() => analyzeTrainingResults(results.value))
 const playerName = ref('')
 const isSharing = ref(false)
+const shareDialog = ref(false)
 const notification = ref('')
 
 const shareParameter = computed(() => route.query.share)
@@ -97,8 +98,7 @@ function restartTraining() {
     <v-container class="result-container">
       <v-card class="result-card" elevation="4" rounded="xl">
         <div class="result-heading text-center">
-          <p class="text-overline text-primary mb-1">Training Complete</p>
-          <h1 class="text-h4 font-weight-bold">トレーニング結果</h1>
+          <h1 class="result-title font-weight-bold">トレーニング結果</h1>
           <p v-if="isSharedResult" class="text-h6 mt-2 mb-0" data-testid="shared-result-heading">
             {{ sharedResultHeading }}
           </p>
@@ -115,12 +115,12 @@ function restartTraining() {
         </v-alert>
 
         <template v-else-if="hasDisplayResult">
-          <p class="text-h6 text-center font-weight-bold mb-4">
+          <p class="text-body-2 text-center text-medium-emphasis mb-3">
             {{ analysis.resultCount }}問の回答を集計しました
           </p>
 
           <section aria-labelledby="summary-heading">
-            <h2 id="summary-heading" class="text-subtitle-1 font-weight-bold mb-3">基本成績</h2>
+            <h2 id="summary-heading" class="text-subtitle-1 font-weight-bold mb-2">基本成績</h2>
             <dl class="metric-grid">
               <div class="metric-card">
                 <dt>合計回答時間</dt>
@@ -137,10 +137,10 @@ function restartTraining() {
             </dl>
           </section>
 
-          <v-divider class="my-6" />
+          <v-divider class="my-3" />
 
           <section aria-labelledby="carry-heading">
-            <h2 id="carry-heading" class="text-subtitle-1 font-weight-bold mb-3">繰り上がり比較</h2>
+            <h2 id="carry-heading" class="text-subtitle-1 font-weight-bold mb-2">繰り上がり比較</h2>
             <dl class="comparison-grid">
               <div>
                 <dt>繰り上がりなし平均</dt>
@@ -155,16 +155,16 @@ function restartTraining() {
                 </dd>
               </div>
             </dl>
-            <p class="difference-message mt-4 mb-0" data-testid="carry-difference">
+            <p class="difference-message mt-2 mb-0" data-testid="carry-difference">
               {{ formatCarryDifference(analysis.carryComparison) }}
             </p>
           </section>
 
-          <v-divider class="my-6" />
+          <v-divider class="my-3" />
 
           <section aria-labelledby="insight-heading">
-            <h2 id="insight-heading" class="text-subtitle-1 font-weight-bold mb-3">考察</h2>
-            <v-alert color="primary" variant="tonal" rounded="lg">
+            <h2 id="insight-heading" class="text-subtitle-1 font-weight-bold mb-2">考察</h2>
+            <v-alert class="insight-card" color="primary" variant="tonal" rounded="lg">
               <p
                 v-for="insight in analysis.insights"
                 :key="insight.type"
@@ -175,46 +175,6 @@ function restartTraining() {
               </p>
             </v-alert>
           </section>
-
-          <template v-if="!isSharedResult">
-            <v-divider class="my-6" />
-
-            <section aria-labelledby="share-heading">
-              <h2 id="share-heading" class="text-subtitle-1 font-weight-bold mb-3">成績を共有</h2>
-              <v-text-field
-                v-model="playerName"
-                label="プレイヤー名"
-                :maxlength="MAX_PLAYER_NAME_LENGTH"
-                counter
-                autocomplete="name"
-              />
-              <p class="text-caption text-medium-emphasis mt-n2 mb-4">
-                共有URLは暗号化されておらず、値を変更できます。個人情報は入力しないでください。
-              </p>
-              <v-btn
-                block
-                color="secondary"
-                data-testid="share-button"
-                size="large"
-                :loading="isSharing"
-                :prepend-icon="mdiShareVariant"
-                @click="shareResult"
-              >
-                成績を共有
-              </v-btn>
-              <v-alert
-                v-if="notification"
-                class="mt-3"
-                density="compact"
-                type="info"
-                variant="tonal"
-                role="status"
-                data-testid="share-notification"
-              >
-                {{ notification }}
-              </v-alert>
-            </section>
-          </template>
         </template>
 
         <template v-else>
@@ -226,7 +186,64 @@ function restartTraining() {
           </v-card>
         </template>
 
-        <div class="result-actions mt-6">
+        <div class="result-actions mt-4">
+          <v-dialog
+            v-if="hasDisplayResult && !isSharedResult && !hasShareParameter"
+            v-model="shareDialog"
+            max-width="440"
+            aria-labelledby="share-heading"
+          >
+            <template #activator="{ props }">
+              <v-btn
+                v-bind="props"
+                block
+                color="secondary"
+                size="large"
+                :prepend-icon="mdiShareVariant"
+                data-testid="open-share-button"
+                >成績を共有</v-btn
+              >
+            </template>
+            <v-card class="share-dialog" rounded="xl">
+              <v-card-title><h2 id="share-heading" class="text-h6">成績を共有</h2></v-card-title>
+              <v-card-text>
+                <v-text-field
+                  v-model="playerName"
+                  label="プレイヤー名"
+                  :maxlength="MAX_PLAYER_NAME_LENGTH"
+                  counter
+                  autocomplete="name"
+                  autofocus
+                />
+                <p class="text-body-2 text-medium-emphasis mb-3">
+                  共有URLは暗号化されておらず、値を変更できます。個人情報は入力しないでください。
+                </p>
+                <v-btn
+                  block
+                  color="secondary"
+                  data-testid="share-button"
+                  size="large"
+                  :loading="isSharing"
+                  :prepend-icon="mdiShareVariant"
+                  @click="shareResult"
+                  >共有する</v-btn
+                >
+                <v-alert
+                  v-if="notification"
+                  class="mt-3"
+                  density="compact"
+                  type="info"
+                  variant="tonal"
+                  role="status"
+                  data-testid="share-notification"
+                  >{{ notification }}</v-alert
+                >
+              </v-card-text>
+              <v-card-actions
+                ><v-btn min-height="44" @click="shareDialog = false">閉じる</v-btn></v-card-actions
+              >
+            </v-card>
+          </v-dialog>
           <v-btn
             v-if="hasDisplayResult"
             block
@@ -262,11 +279,11 @@ function restartTraining() {
 }
 
 .result-card {
-  padding: clamp(20px, 5vw, 32px);
+  padding: clamp(16px, 4vw, 24px);
 }
 
 .result-heading {
-  margin-bottom: clamp(20px, 5vw, 24px);
+  margin-bottom: 8px;
 }
 
 .result-actions {
@@ -278,23 +295,25 @@ function restartTraining() {
 .comparison-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 0;
   margin: 0;
+  padding: 12px 0;
+  border: 1px solid rgb(var(--v-theme-primary), 0.2);
+  border-radius: 12px;
+  background: rgb(var(--v-theme-primary), 0.06);
 }
 
 .metric-card,
 .comparison-grid > div {
-  padding: 16px 10px;
-  border: 1px solid rgb(var(--v-theme-primary), 0.2);
-  border-radius: 12px;
-  background: rgb(var(--v-theme-primary), 0.06);
+  padding: 0 6px;
+  min-width: 0;
   text-align: center;
 }
 
 .metric-grid dt,
 .comparison-grid dt {
   color: rgb(var(--v-theme-on-surface), 0.7);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .metric-grid dd,
@@ -310,25 +329,34 @@ function restartTraining() {
 }
 
 .difference-message {
-  padding: 12px 16px;
+  padding: 8px 10px;
   border-radius: 10px;
   background: rgb(var(--v-theme-surface-variant), 0.5);
   text-align: center;
   font-weight: 500;
 }
 
-@media (max-width: 479px) {
-  .metric-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .comparison-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .metric-card,
-  .comparison-grid > div {
-    padding: 12px 10px;
-  }
+.result-title {
+  font-size: 1.75rem;
+  line-height: 1.3;
+}
+.metric-card + .metric-card,
+.comparison-grid > div + div {
+  border-left: 1px solid rgb(var(--v-theme-primary), 0.2);
+}
+.insight-card {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  padding: 12px;
+}
+.result-heading {
+  overflow-wrap: anywhere;
+}
+.share-dialog {
+  padding: 8px;
+}
+.result-actions :deep(.v-btn:focus-visible) {
+  outline: 3px solid rgb(var(--v-theme-primary), 0.6);
+  outline-offset: 2px;
 }
 </style>

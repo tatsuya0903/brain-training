@@ -5,7 +5,8 @@ import { generateTrainingQuestions, type RandomSource } from '../domain/training
 import type { QuestionResult, TrainingQuestion } from '../domain/training/types'
 
 export type Clock = () => number
-export type SubmitAnswerResult = 'empty' | 'incorrect' | 'correct' | 'completed'
+export type SubmitAnswerResult = 'empty' | 'incorrect' | 'correct'
+export const CORRECT_FEEDBACK_MS = 350
 
 const performanceClock: Clock = () => performance.now()
 
@@ -16,6 +17,15 @@ export const useTrainingStore = defineStore('training', () => {
   const questionStartedAt = ref<number | null>(null)
   const results = ref<QuestionResult[]>([])
   const isCompleted = ref(false)
+  const feedback = ref<'correct' | 'incorrect' | null>(null)
+  const canAnswer = computed(
+    () => questionStartedAt.value !== null && !isCompleted.value && feedback.value !== 'correct',
+  )
+  const correctElapsedMs = computed(() =>
+    feedback.value === 'correct'
+      ? (results.value[results.value.length - 1]?.elapsedMs ?? null)
+      : null,
+  )
 
   const currentQuestion = computed(() => questions.value[currentQuestionIndex.value])
   const totalQuestions = computed(() => questions.value.length)
@@ -26,27 +36,43 @@ export const useTrainingStore = defineStore('training', () => {
     totalQuestions.value === 0 ? 0 : (currentQuestionNumber.value / totalQuestions.value) * 100,
   )
 
-  function startTraining(random: RandomSource = Math.random, clock: Clock = performanceClock) {
+  function startTraining(random: RandomSource = Math.random) {
     questions.value = generateTrainingQuestions(random)
     currentQuestionIndex.value = 0
     currentAnswer.value = ''
     results.value = []
     isCompleted.value = false
-    questionStartedAt.value = clock()
+    feedback.value = null
+    questionStartedAt.value = null
+  }
+
+  // The view starts the clock only after the current problem has been rendered.
+  function beginQuestion(clock: Clock = performanceClock) {
+    if (
+      currentQuestion.value &&
+      !isCompleted.value &&
+      feedback.value !== 'correct' &&
+      questionStartedAt.value === null
+    ) {
+      questionStartedAt.value = clock()
+    }
   }
 
   function appendDigit(digit: string) {
-    if (/^\d$/.test(digit) && !isCompleted.value) {
+    if (/^\d$/.test(digit) && canAnswer.value) {
+      feedback.value = null
       currentAnswer.value += digit
     }
   }
 
   function deleteLastDigit() {
+    if (!canAnswer.value) return
+    feedback.value = null
     currentAnswer.value = currentAnswer.value.slice(0, -1)
   }
 
   function submitAnswer(clock: Clock = performanceClock): SubmitAnswerResult {
-    if (currentAnswer.value === '') {
+    if (!canAnswer.value || currentAnswer.value === '') {
       return 'empty'
     }
 
@@ -58,6 +84,7 @@ export const useTrainingStore = defineStore('training', () => {
 
     if (Number(currentAnswer.value) !== question.answer) {
       currentAnswer.value = ''
+      feedback.value = 'incorrect'
       return 'incorrect'
     }
 
@@ -75,6 +102,14 @@ export const useTrainingStore = defineStore('training', () => {
       category: question.category,
     })
     currentAnswer.value = ''
+    questionStartedAt.value = null
+    feedback.value = 'correct'
+    return 'correct'
+  }
+
+  function advanceAfterFeedback(): 'next' | 'completed' | 'ignored' {
+    if (feedback.value !== 'correct') return 'ignored'
+    feedback.value = null
 
     if (currentQuestionIndex.value === questions.value.length - 1) {
       isCompleted.value = true
@@ -83,8 +118,7 @@ export const useTrainingStore = defineStore('training', () => {
     }
 
     currentQuestionIndex.value += 1
-    questionStartedAt.value = answeredAt
-    return 'correct'
+    return 'next'
   }
 
   return {
@@ -94,11 +128,16 @@ export const useTrainingStore = defineStore('training', () => {
     questionStartedAt,
     results,
     isCompleted,
+    feedback,
+    canAnswer,
+    correctElapsedMs,
     currentQuestion,
     totalQuestions,
     currentQuestionNumber,
     progress,
     startTraining,
+    beginQuestion,
+    advanceAfterFeedback,
     appendDigit,
     deleteLastDigit,
     submitAnswer,
