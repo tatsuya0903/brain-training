@@ -154,17 +154,23 @@ describe('ResultView', () => {
     return new DOMWrapper(document.body)
   }
 
-  it('makes total time primary and shows median as the usual speed plus best', async () => {
+  it('makes total time primary and shows best on the left and median on the right', async () => {
     const wrapper = await mountResultView(results)
+    const supportingMetrics = wrapper.findAll('.supporting-metric')
 
     expect(wrapper.get('[data-testid="primary-metric"] [data-testid="total-time"]').text()).toBe(
       '14.60秒',
     )
-    expect(wrapper.get('[data-testid="typical-time"]').text()).toBe('1.45秒')
     expect(wrapper.get('[data-testid="best-time"]').text()).toBe('1.00秒')
+    expect(wrapper.get('[data-testid="median-time"]').text()).toBe('1.45秒')
+    expect(supportingMetrics[0]?.text()).toContain('ベスト')
+    expect(supportingMetrics[0]?.text()).toContain('1.00秒')
+    expect(supportingMetrics[1]?.text()).toContain('中央値')
+    expect(supportingMetrics[1]?.text()).toContain('1.45秒')
     expect(wrapper.text()).toContain('合計タイム')
-    expect(wrapper.text()).toContain('いつもの速さ')
     expect(wrapper.text()).toContain('ベスト')
+    expect(wrapper.text()).toContain('中央値')
+    expect(wrapper.text()).not.toContain('いつもの速さ')
     expect(wrapper.text()).not.toContain('平均回答時間')
     expect(wrapper.get('[data-testid="primary-metric"]').classes()).toContain('total-metric')
   })
@@ -213,19 +219,19 @@ describe('ResultView', () => {
     expect(wrapper.find('[data-testid="carry-trend"]').exists()).toBe(false)
   })
 
-  it('keeps details collapsed initially and expands all ten expressions, times, and bars', async () => {
+  it('shows all ten detail expressions, times, and bars without an expand action', async () => {
     const wrapper = await mountResultView(results)
-    const toggle = wrapper.get('[data-testid="details-toggle"]')
-
-    expect(toggle.attributes('aria-expanded')).toBe('false')
-    expect(wrapper.findAll('[data-testid="detail-row"]')).toHaveLength(0)
-
-    await toggle.trigger('click')
-    await flushPromises()
 
     const rows = wrapper.findAll('[data-testid="detail-row"]')
     const bars = wrapper.findAll('[data-testid="detail-bar"]')
-    expect(toggle.attributes('aria-expanded')).toBe('true')
+    const retryButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('もう一度挑戦する'))
+    const detailsHeading = wrapper.get('[data-testid="details-heading"]')
+
+    expect(wrapper.text()).toContain('詳細結果')
+    expect(wrapper.find('[data-testid="details-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-expanded]').exists()).toBe(false)
     expect(rows).toHaveLength(10)
     expect(bars).toHaveLength(10)
     expect(rows[0]?.text()).toContain('2 + 3')
@@ -236,6 +242,11 @@ describe('ResultView', () => {
     expect(bars[0]?.attributes('style')).toContain('width: 50%')
     expect(bars[9]?.attributes('data-bar-width')).toBe('100')
     expect(bars[9]?.attributes('style')).toContain('width: 100%')
+    expect(retryButton).toBeDefined()
+    expect(
+      retryButton!.element.compareDocumentPosition(detailsHeading.element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 
   it('shows a safe empty state when the result route is opened directly', async () => {
@@ -264,16 +275,15 @@ describe('ResultView', () => {
 
     expect(wrapper.get('[data-testid="shared-result-heading"]').text()).toBe('山田 太郎さんの結果')
     expect(wrapper.get('[data-testid="total-time"]').text()).toBe('14.60秒')
-    expect(wrapper.get('[data-testid="typical-time"]').text()).toBe('1.45秒')
     expect(wrapper.get('[data-testid="best-time"]').text()).toBe('1.00秒')
-    expect(wrapper.text()).toContain('いつもの速さ')
+    expect(wrapper.get('[data-testid="median-time"]').text()).toBe('1.45秒')
+    expect(wrapper.text()).toContain('中央値')
+    expect(wrapper.text()).not.toContain('いつもの速さ')
     expect(wrapper.get('[data-testid="carry-difference"]').text()).toContain('0.23秒 遅めでした')
     expect(wrapper.find('[data-testid="open-share-button"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="app-icon"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('もう一度挑戦する')
 
-    await wrapper.get('[data-testid="details-toggle"]').trigger('click')
-    await flushPromises()
     const rows = wrapper.findAll('[data-testid="detail-row"]')
     expect(rows).toHaveLength(10)
     for (const [index, row] of rows.entries()) {

@@ -45,7 +45,6 @@ const canShare = computed(
   () => hasDisplayResult.value && !isSharedResult.value && !hasShareParameter.value,
 )
 const analysis = computed(() => analyzeTrainingResults(displayResults.value))
-const typicalTimeMs = computed(() => analysis.value.medianMs)
 const showCarryTrend = computed(() => shouldShowCarryTrend(analysis.value.carryComparison))
 const orderedResults = computed(() =>
   [...displayResults.value].sort((left, right) => left.questionIndex - right.questionIndex),
@@ -231,12 +230,12 @@ function restartTraining() {
               </div>
               <div class="supporting-metrics">
                 <div class="supporting-metric">
-                  <dt aria-label="いつもの速さ（回答時間の中央値）">いつもの速さ</dt>
-                  <dd data-testid="typical-time">{{ formatElapsedTime(typicalTimeMs) }}</dd>
-                </div>
-                <div class="supporting-metric">
                   <dt>ベスト</dt>
                   <dd data-testid="best-time">{{ formatElapsedTime(analysis.bestMs) }}</dd>
+                </div>
+                <div class="supporting-metric">
+                  <dt>中央値</dt>
+                  <dd data-testid="median-time">{{ formatElapsedTime(analysis.medianMs) }}</dd>
                 </div>
               </div>
             </dl>
@@ -261,50 +260,47 @@ function restartTraining() {
               color="primary"
               size="large"
               :prepend-icon="mdiRefresh"
+              data-testid="retry-button"
               @click="restartTraining"
             >
               もう一度挑戦する
             </v-btn>
           </div>
 
-          <v-expansion-panels
+          <section
             v-if="orderedResults.length > 0"
-            class="details-panels"
-            variant="accordion"
+            class="details-section"
+            aria-labelledby="details-heading"
           >
-            <v-expansion-panel elevation="0" rounded="lg">
-              <v-expansion-panel-title data-testid="details-toggle">
-                詳細結果
-              </v-expansion-panel-title>
-              <v-expansion-panel-text>
-                <ol class="detail-list" aria-label="問題ごとの詳細結果">
-                  <li
-                    v-for="result in orderedResults"
-                    :key="result.questionIndex"
-                    class="detail-row"
-                    data-testid="detail-row"
-                  >
-                    <span
-                      class="detail-bar"
-                      :style="{ width: `${detailBarWidth(result.elapsedMs)}%` }"
-                      :data-bar-width="detailBarWidth(result.elapsedMs)"
-                      data-testid="detail-bar"
-                      aria-hidden="true"
-                    />
-                    <span class="detail-number" aria-hidden="true">{{ result.questionIndex }}</span>
-                    <span class="visually-hidden">問題{{ result.questionIndex }}、</span>
-                    <span
-                      class="detail-expression"
-                      :aria-label="`${result.leftOperand}たす${result.rightOperand}`"
-                    >
-                      {{ result.leftOperand }} + {{ result.rightOperand }}
-                    </span>
-                    <span class="detail-time">{{ formatElapsedTime(result.elapsedMs) }}</span>
-                  </li>
-                </ol>
-              </v-expansion-panel-text>
-            </v-expansion-panel>
-          </v-expansion-panels>
+            <h2 id="details-heading" class="details-heading" data-testid="details-heading">
+              詳細結果
+            </h2>
+            <ol class="detail-list" aria-label="問題ごとの詳細結果">
+              <li
+                v-for="result in orderedResults"
+                :key="result.questionIndex"
+                class="detail-row"
+                data-testid="detail-row"
+              >
+                <span
+                  class="detail-bar"
+                  :style="{ width: `${detailBarWidth(result.elapsedMs)}%` }"
+                  :data-bar-width="detailBarWidth(result.elapsedMs)"
+                  data-testid="detail-bar"
+                  aria-hidden="true"
+                />
+                <span class="detail-number" aria-hidden="true">{{ result.questionIndex }}</span>
+                <span class="visually-hidden">問題{{ result.questionIndex }}、</span>
+                <span
+                  class="detail-expression"
+                  :aria-label="`${result.leftOperand}たす${result.rightOperand}`"
+                >
+                  {{ result.leftOperand }} + {{ result.rightOperand }}
+                </span>
+                <span class="detail-time">{{ formatElapsedTime(result.elapsedMs) }}</span>
+              </li>
+            </ol>
+          </section>
         </template>
 
         <template v-else>
@@ -479,21 +475,19 @@ function restartTraining() {
   margin-top: 12px;
 }
 
-.details-panels {
+.details-section {
   margin-top: 10px;
+  padding: 0 10px 10px;
   border: 1px solid rgb(var(--v-theme-primary), 0.18);
   border-radius: 12px;
   overflow: hidden;
 }
 
-.details-panels :deep(.v-expansion-panel-title) {
-  min-height: 46px;
-  padding: 8px 14px;
+.details-heading {
+  margin: 0 -10px 0;
+  padding: 12px 14px 10px;
+  font-size: 1rem;
   font-weight: 700;
-}
-
-.details-panels :deep(.v-expansion-panel-text__wrapper) {
-  padding: 0 10px 10px;
 }
 
 .detail-list {
@@ -555,8 +549,7 @@ function restartTraining() {
   padding: 8px;
 }
 
-.result-card :deep(.v-btn:focus-visible),
-.details-panels :deep(.v-expansion-panel-title:focus-visible) {
+.result-card :deep(.v-btn:focus-visible) {
   outline: 3px solid rgb(var(--v-theme-primary), 0.6);
   outline-offset: 2px;
 }
