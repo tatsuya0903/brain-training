@@ -32,6 +32,7 @@ export interface TrainingAnalysis {
   resultCount: number
   totalMs: number
   averageMs: number | null
+  medianMs: number | null
   bestMs: number | null
   carryComparison: CarryComparison
   answerTypeAverages: AnswerTypeAverages
@@ -45,6 +46,25 @@ function averageElapsedMs(results: readonly QuestionResult[]): number | null {
   }
 
   return results.reduce((total, result) => total + result.elapsedMs, 0) / results.length
+}
+
+export function calculateMedianElapsedMs(results: readonly QuestionResult[]): number | null {
+  if (results.length === 0) {
+    return null
+  }
+
+  const elapsedTimes = results.map((result) => result.elapsedMs).sort((left, right) => left - right)
+  const middleIndex = Math.floor(elapsedTimes.length / 2)
+
+  if (elapsedTimes.length % 2 === 1) {
+    return elapsedTimes[middleIndex] ?? null
+  }
+
+  const lowerMiddle = elapsedTimes[middleIndex - 1]
+  const upperMiddle = elapsedTimes[middleIndex]
+  return lowerMiddle === undefined || upperMiddle === undefined
+    ? null
+    : (lowerMiddle + upperMiddle) / 2
 }
 
 export function analyzeCarryComparison(results: readonly QuestionResult[]): CarryComparison {
@@ -104,9 +124,17 @@ export function generateTrainingInsights(carryComparison: CarryComparison): Trai
   ]
 }
 
+export function shouldShowCarryTrend(comparison: CarryComparison): boolean {
+  return (
+    comparison.carryMinusNoCarryMs !== null &&
+    comparison.carryMinusNoCarryMs >= CARRY_DIFFERENCE_THRESHOLD_MS
+  )
+}
+
 export function analyzeTrainingResults(results: readonly QuestionResult[]): TrainingAnalysis {
   const totalMs = results.reduce((total, result) => total + result.elapsedMs, 0)
   const averageMs = averageElapsedMs(results)
+  const medianMs = calculateMedianElapsedMs(results)
   const bestMs =
     results.length === 0 ? null : Math.min(...results.map((result) => result.elapsedMs))
   const carryComparison = analyzeCarryComparison(results)
@@ -119,6 +147,7 @@ export function analyzeTrainingResults(results: readonly QuestionResult[]): Trai
     resultCount: results.length,
     totalMs,
     averageMs,
+    medianMs,
     bestMs,
     carryComparison,
     answerTypeAverages: {

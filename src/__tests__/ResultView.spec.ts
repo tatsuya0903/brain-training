@@ -13,47 +13,83 @@ import vuetify from '../plugins/vuetify'
 import router from '../router'
 import { useTrainingStore } from '../stores/training'
 
-const results: QuestionResult[] = [
-  {
-    questionIndex: 1,
-    leftOperand: 2,
-    rightOperand: 3,
-    correctAnswer: 5,
-    elapsedMs: 1000,
-    onesCarry: false,
-    threeDigits: false,
-    category: 'single-digit',
-  },
-  {
-    questionIndex: 3,
-    leftOperand: 12,
-    rightOperand: 13,
-    correctAnswer: 25,
-    elapsedMs: 1000,
+function result(
+  questionIndex: number,
+  elapsedMs: number,
+  overrides: Partial<QuestionResult> = {},
+): QuestionResult {
+  return {
+    questionIndex,
+    leftOperand: 10 + questionIndex,
+    rightOperand: 20 + questionIndex,
+    correctAnswer: 30 + questionIndex * 2,
+    elapsedMs,
     onesCarry: false,
     threeDigits: false,
     category: 'two-digit-no-carry',
-  },
-  {
-    questionIndex: 5,
+    ...overrides,
+  }
+}
+
+const results: QuestionResult[] = [
+  result(1, 1000, {
+    leftOperand: 2,
+    rightOperand: 3,
+    correctAnswer: 5,
+    category: 'single-digit',
+  }),
+  result(2, 1100, {
+    leftOperand: 6,
+    rightOperand: 3,
+    correctAnswer: 9,
+    category: 'single-digit',
+  }),
+  result(3, 1200, { leftOperand: 12, rightOperand: 13, correctAnswer: 25 }),
+  result(4, 1300, { leftOperand: 21, rightOperand: 23, correctAnswer: 44 }),
+  result(5, 1400, {
     leftOperand: 28,
     rightOperand: 34,
     correctAnswer: 62,
-    elapsedMs: 1500,
     onesCarry: true,
-    threeDigits: false,
     category: 'two-digit-carry',
-  },
-  {
-    questionIndex: 6,
+  }),
+  result(6, 1500, {
     leftOperand: 48,
     rightOperand: 34,
     correctAnswer: 82,
-    elapsedMs: 1700,
     onesCarry: true,
-    threeDigits: false,
     category: 'two-digit-carry',
-  },
+  }),
+  result(7, 1600, {
+    leftOperand: 51,
+    rightOperand: 50,
+    correctAnswer: 101,
+    threeDigits: true,
+    category: 'three-digit-no-ones-carry',
+  }),
+  result(8, 1700, {
+    leftOperand: 62,
+    rightOperand: 40,
+    correctAnswer: 102,
+    threeDigits: true,
+    category: 'three-digit-no-ones-carry',
+  }),
+  result(9, 1800, {
+    leftOperand: 68,
+    rightOperand: 43,
+    correctAnswer: 111,
+    onesCarry: true,
+    threeDigits: true,
+    category: 'three-digit-ones-carry',
+  }),
+  result(10, 2000, {
+    leftOperand: 78,
+    rightOperand: 33,
+    correctAnswer: 111,
+    onesCarry: true,
+    threeDigits: true,
+    category: 'three-digit-ones-carry',
+  }),
 ]
 
 const sharedPayload: SharedResultPayload = {
@@ -117,20 +153,88 @@ describe('ResultView', () => {
     return new DOMWrapper(document.body)
   }
 
-  it('displays the aggregate, carry comparison, and insight from stored results', async () => {
+  it('makes total time primary and shows median as the usual speed plus best', async () => {
     const wrapper = await mountResultView(results)
 
-    expect(wrapper.get('[data-testid="total-time"]').text()).toBe('5.20秒')
-    expect(wrapper.get('[data-testid="average-time"]').text()).toBe('1.30秒')
-    expect(wrapper.get('[data-testid="best-time"]').text()).toBe('1.00秒')
-    expect(wrapper.get('[data-testid="no-carry-average"]').text()).toBe('1.00秒')
-    expect(wrapper.get('[data-testid="carry-average"]').text()).toBe('1.60秒')
-    expect(wrapper.get('[data-testid="carry-difference"]').text()).toBe(
-      '繰り上がりありの方が0.60秒長い',
+    expect(wrapper.get('[data-testid="primary-metric"] [data-testid="total-time"]').text()).toBe(
+      '14.60秒',
     )
-    expect(wrapper.get('[data-testid="insight"]').text()).toContain('繰り上がりありの問題は')
-    expect(wrapper.find('input').exists()).toBe(false)
-    expect(wrapper.get('button').text()).toBeTruthy()
+    expect(wrapper.get('[data-testid="typical-time"]').text()).toBe('1.45秒')
+    expect(wrapper.get('[data-testid="best-time"]').text()).toBe('1.00秒')
+    expect(wrapper.text()).toContain('合計タイム')
+    expect(wrapper.text()).toContain('いつもの速さ')
+    expect(wrapper.text()).toContain('ベスト')
+    expect(wrapper.text()).not.toContain('平均回答時間')
+    expect(wrapper.get('[data-testid="primary-metric"]').classes()).toContain('total-metric')
+  })
+
+  it('shows the existing app icon and a compact accessible share action in the header', async () => {
+    const wrapper = await mountResultView(results)
+    const header = wrapper.get('.result-header')
+    const icon = header.get('[data-testid="app-icon"]')
+    const shareButton = header.get('[data-testid="open-share-button"]')
+
+    expect(icon.attributes('src')).toContain('pwa-192x192.png')
+    expect(shareButton.attributes('aria-label')).toBe('成績を共有')
+    expect(shareButton.classes()).toContain('share-activator')
+  })
+
+  it('shows a compact carry trend only when carry questions are clearly slower', async () => {
+    const wrapper = await mountResultView(results)
+
+    expect(wrapper.get('[data-testid="carry-trend"]').text()).toContain('今回の傾向')
+    expect(wrapper.get('[data-testid="carry-difference"]').text()).toContain('0.23秒 遅めでした')
+  })
+
+  it('hides the carry trend when carry questions are faster', async () => {
+    const fasterCarryResults = results.map((item) =>
+      item.onesCarry ? { ...item, elapsedMs: item.questionIndex * 50 } : item,
+    )
+    const wrapper = await mountResultView(fasterCarryResults)
+
+    expect(wrapper.find('[data-testid="carry-trend"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('今回の傾向')
+  })
+
+  it('hides the carry trend when the averages are nearly the same', async () => {
+    const similarCarryTimes = new Map([
+      [5, 1300],
+      [6, 1400],
+      [9, 1500],
+      [10, 1600],
+    ])
+    const similarResults = results.map((item) => ({
+      ...item,
+      elapsedMs: similarCarryTimes.get(item.questionIndex) ?? item.elapsedMs,
+    }))
+    const wrapper = await mountResultView(similarResults)
+
+    expect(wrapper.find('[data-testid="carry-trend"]').exists()).toBe(false)
+  })
+
+  it('keeps details collapsed initially and expands all ten expressions, times, and bars', async () => {
+    const wrapper = await mountResultView(results)
+    const toggle = wrapper.get('[data-testid="details-toggle"]')
+
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.findAll('[data-testid="detail-row"]')).toHaveLength(0)
+
+    await toggle.trigger('click')
+    await flushPromises()
+
+    const rows = wrapper.findAll('[data-testid="detail-row"]')
+    const bars = wrapper.findAll('[data-testid="detail-bar"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(rows).toHaveLength(10)
+    expect(bars).toHaveLength(10)
+    expect(rows[0]?.text()).toContain('2 + 3')
+    expect(rows[0]?.text()).toContain('1.00秒')
+    expect(rows[9]?.text()).toContain('78 + 33')
+    expect(rows[9]?.text()).toContain('2.00秒')
+    expect(bars[0]?.attributes('data-bar-width')).toBe('50')
+    expect(bars[0]?.attributes('style')).toContain('width: 50%')
+    expect(bars[9]?.attributes('data-bar-width')).toBe('100')
+    expect(bars[9]?.attributes('style')).toContain('width: 100%')
   })
 
   it('shows a safe empty state when the result route is opened directly', async () => {
@@ -138,9 +242,10 @@ describe('ResultView', () => {
 
     expect(wrapper.text()).toContain('まだ結果がありません')
     expect(wrapper.get('a').text()).toContain('ホームへ戻る')
+    expect(wrapper.find('[data-testid="app-icon"]').exists()).toBe(true)
   })
 
-  it('lets the player enter a name in the sharing UI', async () => {
+  it('opens the existing sharing dialog from the header and accepts a player name', async () => {
     const wrapper = await mountResultView(results)
     await wrapper.get('[data-testid="open-share-button"]').trigger('click')
     await flushPromises()
@@ -149,19 +254,24 @@ describe('ResultView', () => {
     await input.setValue('たつや')
 
     expect((input.element as HTMLInputElement).value).toBe('たつや')
-    expect(wrapper.get('button[type="button"]')).toBeTruthy()
-    expect(wrapper.text()).toContain('成績を共有')
+    expect(body().get('[role="dialog"]').text()).toContain('成績を共有')
+    expect(body().text()).toContain('共有URLは暗号化されておらず')
   })
 
-  it('displays a Japanese-named shared result without store results', async () => {
+  it('safely displays a legacy shared result without inventing question details', async () => {
     const wrapper = await mountResultView([], encodeSharedResult(sharedPayload))
 
     expect(wrapper.get('[data-testid="shared-result-heading"]').text()).toBe('山田 太郎さんの結果')
     expect(wrapper.get('[data-testid="total-time"]').text()).toBe('12.00秒')
-    expect(wrapper.get('[data-testid="average-time"]').text()).toBe('1.20秒')
+    expect(wrapper.get('[data-testid="typical-time"]').text()).toBe('1.20秒')
     expect(wrapper.get('[data-testid="best-time"]').text()).toBe('0.80秒')
-    expect(wrapper.get('[data-testid="carry-difference"]').text()).toContain('0.40秒長い')
-    expect(wrapper.text()).not.toContain('成績を共有')
+    expect(wrapper.text()).toContain('平均の速さ')
+    expect(wrapper.text()).not.toContain('いつもの速さ')
+    expect(wrapper.get('[data-testid="carry-difference"]').text()).toContain('0.40秒 遅めでした')
+    expect(wrapper.find('[data-testid="details-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="detail-row"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="open-share-button"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="app-icon"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('もう一度挑戦する')
   })
 
@@ -186,7 +296,7 @@ describe('ResultView', () => {
     },
   )
 
-  it('uses Web Share with the displayed analysis and player name', async () => {
+  it('uses Web Share with the unchanged version 1 payload and player name', async () => {
     const share = vi.fn<(data: ShareData) => Promise<void>>().mockResolvedValue(undefined)
     const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { share, clipboard: { writeText } })
@@ -211,7 +321,13 @@ describe('ResultView', () => {
     const sharedUrl = new URL(sharedUrlValue)
     expect(sharedUrl.hash).toContain('#/result?share=')
     const decoded = decodeShareFromUrl(sharedUrl)
-    expect(decoded).toMatchObject({ playerName: '太郎', totalMs: 5200, averageMs: 1300 })
+    expect(decoded).toMatchObject({
+      version: 1,
+      playerName: '太郎',
+      totalMs: 14600,
+      averageMs: 1460,
+    })
+    expect(decoded).not.toHaveProperty('medianMs')
   })
 
   it('falls back to Clipboard and shows success feedback', async () => {
