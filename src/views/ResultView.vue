@@ -4,13 +4,11 @@ import { mdiHome, mdiRefresh, mdiShareVariant } from '@mdi/js'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
-import {
-  createSharedResultAnalysis,
-  createSharedResultPayload,
-} from '../domain/sharing/sharedResult'
+import { createSharedResultPayload, reconstructSharedResults } from '../domain/sharing/sharedResult'
 import {
   decodeSharedResult,
   encodeSharedResult,
+  MAX_PLAYER_NAME_BYTES,
   MAX_PLAYER_NAME_LENGTH,
 } from '../domain/sharing/sharedResultCodec'
 import { shareResultUrl } from '../domain/sharing/shareResultUrl'
@@ -25,34 +23,32 @@ const route = useRoute()
 const router = useRouter()
 const trainingStore = useTrainingStore()
 const { results } = storeToRefs(trainingStore)
-const localAnalysis = computed(() => analyzeTrainingResults(results.value))
 const playerName = ref('')
 const isSharing = ref(false)
 const shareDialog = ref(false)
 const notification = ref('')
 const appIconUrl = `${import.meta.env.BASE_URL}pwa-192x192.png`
 
-const shareParameter = computed(() => route.query.share)
+const shareParameter = computed(() => route.query.s)
 const hasShareParameter = computed(() => shareParameter.value !== undefined)
 const sharedPayload = computed(() => {
   const parameter = shareParameter.value
   return typeof parameter === 'string' ? decodeSharedResult(parameter) : null
 })
-const isSharedResult = computed(() => sharedPayload.value !== null)
-const hasDisplayResult = computed(() => isSharedResult.value || results.value.length > 0)
+const sharedResults = computed(() =>
+  sharedPayload.value ? reconstructSharedResults(sharedPayload.value) : null,
+)
+const isSharedResult = computed(() => sharedResults.value !== null)
+const displayResults = computed(() => sharedResults.value ?? results.value)
+const hasDisplayResult = computed(() => displayResults.value.length > 0)
 const canShare = computed(
   () => hasDisplayResult.value && !isSharedResult.value && !hasShareParameter.value,
 )
-const analysis = computed(() =>
-  sharedPayload.value ? createSharedResultAnalysis(sharedPayload.value) : localAnalysis.value,
-)
-const typicalTimeMs = computed(() =>
-  isSharedResult.value ? analysis.value.averageMs : localAnalysis.value.medianMs,
-)
-const typicalTimeLabel = computed(() => (isSharedResult.value ? '平均の速さ' : 'いつもの速さ'))
+const analysis = computed(() => analyzeTrainingResults(displayResults.value))
+const typicalTimeMs = computed(() => analysis.value.medianMs)
 const showCarryTrend = computed(() => shouldShowCarryTrend(analysis.value.carryComparison))
 const orderedResults = computed(() =>
-  [...results.value].sort((left, right) => left.questionIndex - right.questionIndex),
+  [...displayResults.value].sort((left, right) => left.questionIndex - right.questionIndex),
 )
 const maxElapsedMs = computed(() =>
   orderedResults.value.reduce((maximum, result) => Math.max(maximum, result.elapsedMs), 0),
@@ -62,6 +58,15 @@ const sharedResultHeading = computed(() => {
   const name = sharedPayload.value?.playerName.trim()
   return name ? `${name}さんの結果` : '共有された結果'
 })
+const isPlayerNameValid = computed(
+  () => new TextEncoder().encode(playerName.value).length <= MAX_PLAYER_NAME_BYTES,
+)
+
+function validatePlayerName(value: string): true | string {
+  return new TextEncoder().encode(value).length <= MAX_PLAYER_NAME_BYTES
+    ? true
+    : `プレイヤー名はUTF-8で${MAX_PLAYER_NAME_BYTES} bytes以内にしてください`
+}
 
 function detailBarWidth(elapsedMs: number): number {
   if (maxElapsedMs.value <= 0) {
@@ -72,18 +77,22 @@ function detailBarWidth(elapsedMs: number): number {
 }
 
 function createShareUrl(): string | null {
-  const payload = createSharedResultPayload(localAnalysis.value, playerName.value)
+  const payload = createSharedResultPayload(results.value, playerName.value)
 
-  if (!payload) {
+  if (!payload || !isPlayerNameValid.value) {
     return null
   }
 
-  const resolved = router.resolve({
-    name: 'result',
-    query: { share: encodeSharedResult(payload) },
-  })
+  try {
+    const resolved = router.resolve({
+      name: 'result',
+      query: { s: encodeSharedResult(payload) },
+    })
 
-  return new URL(resolved.href, window.location.href).href
+    return new URL(resolved.href, window.location.href).href
+  } catch {
+    return null
+  }
 }
 
 async function shareResult() {
@@ -156,6 +165,7 @@ function restartTraining() {
                   v-model="playerName"
                   label="プレイヤー名"
                   :maxlength="MAX_PLAYER_NAME_LENGTH"
+                  :rules="[validatePlayerName]"
                   counter
                   autocomplete="name"
                   autofocus
@@ -167,6 +177,7 @@ function restartTraining() {
                   block
                   color="secondary"
                   data-testid="share-button"
+                  :disabled="!isPlayerNameValid"
                   size="large"
                   :loading="isSharing"
                   :prepend-icon="mdiShareVariant"
@@ -220,15 +231,7 @@ function restartTraining() {
               </div>
               <div class="supporting-metrics">
                 <div class="supporting-metric">
-                  <dt
-                    :aria-label="
-                      isSharedResult
-                        ? '平均の速さ（共有された平均回答時間）'
-                        : 'いつもの速さ（回答時間の中央値）'
-                    "
-                  >
-                    {{ typicalTimeLabel }}
-                  </dt>
+                  <dt aria-label="いつもの速さ（回答時間の中央値）">いつもの速さ</dt>
                   <dd data-testid="typical-time">{{ formatElapsedTime(typicalTimeMs) }}</dd>
                 </div>
                 <div class="supporting-metric">
@@ -265,7 +268,7 @@ function restartTraining() {
           </div>
 
           <v-expansion-panels
-            v-if="!isSharedResult && orderedResults.length > 0"
+            v-if="orderedResults.length > 0"
             class="details-panels"
             variant="accordion"
           >

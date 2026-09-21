@@ -24,10 +24,36 @@ async function answerCurrentQuestionWithKeyboard(page: Page, numpad = false) {
   const answer = await currentCorrectAnswer(page)
 
   for (const digit of String(answer)) {
-    await page.keyboard.press(numpad ? `Numpad${digit}` : digit)
+    if (numpad) {
+      await page.evaluate((value) => {
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: value,
+            code: `Numpad${value}`,
+            location: KeyboardEvent.DOM_KEY_LOCATION_NUMPAD,
+            bubbles: true,
+          }),
+        )
+      }, digit)
+    } else {
+      await page.keyboard.press(digit)
+    }
   }
 
-  await page.keyboard.press(numpad ? 'NumpadEnter' : 'Enter')
+  if (numpad) {
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Enter',
+          code: 'NumpadEnter',
+          location: KeyboardEvent.DOM_KEY_LOCATION_NUMPAD,
+          bubbles: true,
+        }),
+      )
+    })
+  } else {
+    await page.keyboard.press('Enter')
+  }
 }
 
 async function expectCorrectFeedback(page: Page) {
@@ -179,8 +205,9 @@ test('completes, shares, restores the result, and starts a new training', async 
   expect(bestSeconds).toBeGreaterThanOrEqual(0)
 
   const displayedResult = {
-    total: await page.getByTestId('total-time').innerText(),
-    best: await page.getByTestId('best-time').innerText(),
+    total: await displayedSeconds(page, 'total-time'),
+    typical: await displayedSeconds(page, 'typical-time'),
+    best: await displayedSeconds(page, 'best-time'),
   }
 
   const detailsToggle = page.getByRole('button', { name: '詳細結果' })
@@ -196,6 +223,7 @@ test('completes, shares, restores the result, and starts a new training', async 
   for (const bar of await page.getByTestId('detail-bar').all()) {
     await expect(bar).toHaveAttribute('style', /width:\s*\d+(?:\.\d+)?%;/u)
   }
+  const localDetails = await page.getByTestId('detail-row').allInnerTexts()
   await detailsToggle.click()
   await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
 
@@ -211,17 +239,34 @@ test('completes, shares, restores the result, and starts a new training', async 
     () => (window as Window & { __sharedResultUrl?: string }).__sharedResultUrl,
   )
   expect(sharedUrl).toBeTruthy()
-  expect(sharedUrl).toContain('/brain-training/#/result?share=')
+  expect(sharedUrl).toContain('/brain-training/#/result?s=')
+  expect(sharedUrl).not.toContain('?share=')
 
   const sharedPage = await context.newPage()
   await sharedPage.goto(sharedUrl!)
   await expect(sharedPage.getByTestId('shared-result-heading')).toHaveText('広島の父さんの結果')
-  await expect(sharedPage.getByTestId('total-time')).toHaveText(displayedResult.total)
-  await expect(sharedPage.getByTestId('best-time')).toHaveText(displayedResult.best)
-  await expect(sharedPage.getByText('平均の速さ', { exact: true })).toBeVisible()
-  expect(await displayedSeconds(sharedPage, 'typical-time')).toBeGreaterThan(0)
-  await expect(sharedPage.getByRole('button', { name: '詳細結果' })).toHaveCount(0)
-  await expect(sharedPage.getByTestId('detail-row')).toHaveCount(0)
+  await expect(sharedPage.getByText('いつもの速さ', { exact: true })).toBeVisible()
+  expect(
+    Math.abs((await displayedSeconds(sharedPage, 'total-time')) - displayedResult.total),
+  ).toBeLessThanOrEqual(0.011)
+  expect(
+    Math.abs((await displayedSeconds(sharedPage, 'typical-time')) - displayedResult.typical),
+  ).toBeLessThanOrEqual(0.011)
+  expect(
+    Math.abs((await displayedSeconds(sharedPage, 'best-time')) - displayedResult.best),
+  ).toBeLessThanOrEqual(0.011)
+  const sharedDetailsToggle = sharedPage.getByRole('button', { name: '詳細結果' })
+  await sharedDetailsToggle.click()
+  await expect(sharedPage.getByTestId('detail-row')).toHaveCount(10)
+  const sharedDetails = await sharedPage.getByTestId('detail-row').allInnerTexts()
+  for (const [index, sharedDetail] of sharedDetails.entries()) {
+    const localExpression = localDetails[index]?.match(/\d+\s*\+\s*\d+/u)?.[0]
+    const sharedExpression = sharedDetail.match(/\d+\s*\+\s*\d+/u)?.[0]
+    const localElapsed = Number.parseFloat(localDetails[index]?.match(/\d+\.\d{2}秒/u)?.[0] ?? '')
+    const sharedElapsed = Number.parseFloat(sharedDetail.match(/\d+\.\d{2}秒/u)?.[0] ?? '')
+    expect(sharedExpression).toBe(localExpression)
+    expect(Math.abs(sharedElapsed - localElapsed)).toBeLessThanOrEqual(0.011)
+  }
   await sharedPage.reload()
   await expect(sharedPage.getByTestId('shared-result-heading')).toHaveText('広島の父さんの結果')
   await sharedPage.getByRole('button', { name: 'もう一度挑戦する' }).click()
@@ -323,11 +368,14 @@ test('keeps completed local results within target mobile viewports', async ({ pa
 })
 
 test('shows a safe state for a broken shared result URL', async ({ page }) => {
-  await page.goto('./#/result?share=broken-value')
+  await page.goto('./#/result?s=broken-value')
 
   await expect(page.getByRole('heading', { name: 'トレーニング結果' })).toBeVisible()
   await expect(page.getByTestId('share-error')).toContainText('この共有データは読み込めません')
   await expect(page.getByRole('link', { name: 'ホームへ戻る' })).toBeVisible()
+
+  await page.goto('./#/result?share=removed-json-format')
+  await expect(page.getByText('まだ結果がありません')).toBeVisible()
 })
 
 test('keeps mobile training controls and results within representative viewports', async ({
@@ -343,13 +391,18 @@ test('keeps mobile training controls and results within representative viewports
   const sharedResult = encodeSharedResult({
     version: 1,
     playerName: 'モバイル利用者',
-    resultCount: 10,
-    totalMs: 12340,
-    averageMs: 1234,
-    bestMs: 850,
-    carryAverageMs: 1400,
-    noCarryAverageMs: 1100,
-    carryMinusNoCarryMs: 300,
+    results: [
+      { leftOperand: 2, rightOperand: 3, elapsedMs: 850 },
+      { leftOperand: 6, rightOperand: 3, elapsedMs: 900 },
+      { leftOperand: 12, rightOperand: 13, elapsedMs: 1000 },
+      { leftOperand: 21, rightOperand: 23, elapsedMs: 1100 },
+      { leftOperand: 28, rightOperand: 34, elapsedMs: 1300 },
+      { leftOperand: 48, rightOperand: 34, elapsedMs: 1400 },
+      { leftOperand: 51, rightOperand: 50, elapsedMs: 1200 },
+      { leftOperand: 62, rightOperand: 40, elapsedMs: 1300 },
+      { leftOperand: 68, rightOperand: 43, elapsedMs: 1600 },
+      { leftOperand: 78, rightOperand: 33, elapsedMs: 1690 },
+    ],
   })
 
   for (const viewport of viewports) {
@@ -384,13 +437,13 @@ test('keeps mobile training controls and results within representative viewports
     await page.getByRole('button', { name: '回答を決定' }).click()
     await expect(page.getByText('問題 1 / 10')).toBeVisible()
 
-    await page.goto(`./#/result?share=${sharedResult}`)
+    await page.goto(`./#/result?s=${sharedResult}`)
     await expect(page.getByRole('heading', { name: 'トレーニング結果' })).toBeVisible()
     await expect(page.getByTestId('total-time')).toBeVisible()
     await expect(page.getByTestId('typical-time')).toBeVisible()
     await expect(page.getByTestId('best-time')).toBeVisible()
-    await expect(page.getByText('平均の速さ', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: '詳細結果' })).toHaveCount(0)
+    await expect(page.getByText('いつもの速さ', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '詳細結果' })).toHaveCount(1)
     await expect(page.getByTestId('detail-row')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'もう一度挑戦する' })).toBeVisible()
     await expectNoHorizontalOverflow(page)

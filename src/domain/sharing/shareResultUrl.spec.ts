@@ -8,10 +8,10 @@ describe('shareResultUrl', () => {
     const writeClipboard = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
 
     await expect(
-      shareResultUrl('https://example.com/#/result?share=data', { share, writeClipboard }),
+      shareResultUrl('https://example.com/#/result?s=data', { share, writeClipboard }),
     ).resolves.toBe('shared')
     expect(share).toHaveBeenCalledWith(
-      expect.objectContaining({ url: 'https://example.com/#/result?share=data' }),
+      expect.objectContaining({ url: 'https://example.com/#/result?s=data' }),
     )
     expect(writeClipboard).not.toHaveBeenCalled()
   })
@@ -20,9 +20,9 @@ describe('shareResultUrl', () => {
     const writeClipboard = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
 
     await expect(
-      shareResultUrl('https://example.com/#/result?share=data', { writeClipboard }),
+      shareResultUrl('https://example.com/#/result?s=data', { writeClipboard }),
     ).resolves.toBe('copied')
-    expect(writeClipboard).toHaveBeenCalledWith('https://example.com/#/result?share=data')
+    expect(writeClipboard).toHaveBeenCalledWith('https://example.com/#/result?s=data')
   })
 
   it('falls back to the clipboard when Web Share cannot start', async () => {

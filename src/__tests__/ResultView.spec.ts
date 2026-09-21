@@ -95,24 +95,25 @@ const results: QuestionResult[] = [
 const sharedPayload: SharedResultPayload = {
   version: 1,
   playerName: '山田 太郎',
-  resultCount: 10,
-  totalMs: 12000,
-  averageMs: 1200,
-  bestMs: 800,
-  carryAverageMs: 1400,
-  noCarryAverageMs: 1000,
-  carryMinusNoCarryMs: 400,
+  results: results.map(({ leftOperand, rightOperand, elapsedMs }) => ({
+    leftOperand,
+    rightOperand,
+    elapsedMs,
+  })),
 }
 
 let mountedWrappers: VueWrapper[] = []
 
-async function mountResultView(storedResults: QuestionResult[], share?: string) {
+async function mountResultView(storedResults: QuestionResult[], sharedResult?: string) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const trainingStore = useTrainingStore()
   trainingStore.results = storedResults
 
-  await router.push({ path: '/result', query: share === undefined ? {} : { share } })
+  await router.push({
+    path: '/result',
+    query: sharedResult === undefined ? {} : { s: sharedResult },
+  })
   await router.isReady()
 
   const wrapper = mount(App, {
@@ -258,21 +259,29 @@ describe('ResultView', () => {
     expect(body().text()).toContain('共有URLは暗号化されておらず')
   })
 
-  it('safely displays a legacy shared result without inventing question details', async () => {
+  it('reconstructs and analyzes a binary shared result with the same summary and details', async () => {
     const wrapper = await mountResultView([], encodeSharedResult(sharedPayload))
 
     expect(wrapper.get('[data-testid="shared-result-heading"]').text()).toBe('山田 太郎さんの結果')
-    expect(wrapper.get('[data-testid="total-time"]').text()).toBe('12.00秒')
-    expect(wrapper.get('[data-testid="typical-time"]').text()).toBe('1.20秒')
-    expect(wrapper.get('[data-testid="best-time"]').text()).toBe('0.80秒')
-    expect(wrapper.text()).toContain('平均の速さ')
-    expect(wrapper.text()).not.toContain('いつもの速さ')
-    expect(wrapper.get('[data-testid="carry-difference"]').text()).toContain('0.40秒 遅めでした')
-    expect(wrapper.find('[data-testid="details-toggle"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="detail-row"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="total-time"]').text()).toBe('14.60秒')
+    expect(wrapper.get('[data-testid="typical-time"]').text()).toBe('1.45秒')
+    expect(wrapper.get('[data-testid="best-time"]').text()).toBe('1.00秒')
+    expect(wrapper.text()).toContain('いつもの速さ')
+    expect(wrapper.get('[data-testid="carry-difference"]').text()).toContain('0.23秒 遅めでした')
     expect(wrapper.find('[data-testid="open-share-button"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="app-icon"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('もう一度挑戦する')
+
+    await wrapper.get('[data-testid="details-toggle"]').trigger('click')
+    await flushPromises()
+    const rows = wrapper.findAll('[data-testid="detail-row"]')
+    expect(rows).toHaveLength(10)
+    for (const [index, row] of rows.entries()) {
+      expect(row.text()).toContain(
+        `${results[index]?.leftOperand} + ${results[index]?.rightOperand}`,
+      )
+      expect(row.text()).toContain(`${((results[index]?.elapsedMs ?? 0) / 1000).toFixed(2)}秒`)
+    }
   })
 
   it('uses a natural heading when the shared player name is empty', async () => {
@@ -284,7 +293,7 @@ describe('ResultView', () => {
     expect(wrapper.get('[data-testid="shared-result-heading"]').text()).toBe('共有された結果')
   })
 
-  it.each(['broken-value', encodeInvalidPayload({ ...sharedPayload, version: 2 })])(
+  it.each(['broken-value', encodeInvalidVersion(sharedPayload)])(
     'shows a safe error for an invalid or unsupported share parameter',
     async (share) => {
       const wrapper = await mountResultView([], share)
@@ -296,7 +305,7 @@ describe('ResultView', () => {
     },
   )
 
-  it('uses Web Share with the unchanged version 1 payload and player name', async () => {
+  it('uses Web Share with the binary version 1 payload and player name', async () => {
     const share = vi.fn<(data: ShareData) => Promise<void>>().mockResolvedValue(undefined)
     const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { share, clipboard: { writeText } })
@@ -319,14 +328,16 @@ describe('ResultView', () => {
     }
 
     const sharedUrl = new URL(sharedUrlValue)
-    expect(sharedUrl.hash).toContain('#/result?share=')
+    expect(sharedUrl.hash).toContain('#/result?s=')
+    expect(sharedUrl.hash).not.toContain('?share=')
     const decoded = decodeShareFromUrl(sharedUrl)
     expect(decoded).toMatchObject({
       version: 1,
       playerName: '太郎',
-      totalMs: 14600,
-      averageMs: 1460,
     })
+    expect(decoded?.results).toHaveLength(10)
+    expect(decoded).not.toHaveProperty('totalMs')
+    expect(decoded).not.toHaveProperty('averageMs')
     expect(decoded).not.toHaveProperty('medianMs')
   })
 
@@ -361,22 +372,53 @@ describe('ResultView', () => {
 
     expect(body().text()).not.toContain('共有できませんでした')
   })
+
+  it('blocks names that exceed 255 UTF-8 bytes before sharing', async () => {
+    const wrapper = await mountResultView(results)
+    await wrapper.get('[data-testid="open-share-button"]').trigger('click')
+    await flushPromises()
+
+    await body().get('input').setValue('あ'.repeat(86))
+    await flushPromises()
+
+    expect(body().get('[data-testid="share-button"]').attributes('disabled')).toBeDefined()
+    expect(body().text()).toContain('255 bytes以内')
+  })
+
+  it('ignores the removed legacy share query without crashing', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    await router.push({ path: '/result', query: { share: 'legacy-json-value' } })
+    await router.isReady()
+    const wrapper = mount(App, {
+      attachTo: document.body,
+      global: { plugins: [pinia, router, vuetify] },
+    })
+    mountedWrappers.push(wrapper)
+
+    expect(wrapper.text()).toContain('まだ結果がありません')
+    expect(wrapper.find('[data-testid="share-error"]').exists()).toBe(false)
+  })
 })
 
-function encodeInvalidPayload(payload: unknown): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(payload))
-  let binary = ''
+function encodeInvalidVersion(payload: SharedResultPayload): string {
+  const encoded = encodeSharedResult(payload)
+  const base64 = encoded.replace(/-/gu, '+').replace(/_/gu, '/')
+  const decodedBinary = atob(base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '='))
+  const bytes = Uint8Array.from(decodedBinary, (character) => character.charCodeAt(0))
+  bytes[0] = 2
+  let encodedBinary = ''
 
   for (const byte of bytes) {
-    binary += String.fromCharCode(byte)
+    encodedBinary += String.fromCharCode(byte)
   }
 
-  return btoa(binary).replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '')
+  return btoa(encodedBinary).replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '')
 }
 
 function decodeShareFromUrl(url: URL) {
   const hashQuery = url.hash.split('?')[1]
-  const encoded = new URLSearchParams(hashQuery).get('share')
+  const encoded = new URLSearchParams(hashQuery).get('s')
 
   expect(encoded).not.toBeNull()
   return decodeSharedResult(encoded!)
