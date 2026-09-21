@@ -55,4 +55,36 @@ npm run format
 
 GitHub PagesでのSPAの直接アクセスや再読み込み時の404を避けるため、Vue RouterはHash Historyを使用しています。そのため、将来の結果画面のURLも`/brain-training/#/...`形式で共有できます。
 
-`.github/workflows/deploy.yml`は`main`へのpushまたは手動実行で`dist`をビルドし、GitHub公式Pages Actionsでデプロイします。初回デプロイ前に、リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定してください。
+`.github/workflows/deploy.yml`は、`v<Semantic Version>`形式のタグがpushされたときだけ`dist`をビルドし、GitHub公式Pages Actionsでデプロイします。通常の`main`へのpushでは本番デプロイされません。初回デプロイ前に、リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定してください。
+
+## リリース
+
+アプリのバージョンは`package.json`の`version`を唯一の管理元とします。リリース前に、対象変更がすべて`main`へmerge済みで、`origin/main`が最新かつworking treeがcleanであることを確認してください。
+
+```sh
+git switch main
+git pull --ff-only origin main
+git status
+```
+
+リリース内容に応じて、次のいずれか1つだけを実行します。`npm version`が`package.json`と`package-lock.json`を更新し、`v<version>`（例: `v1.3.0`）をmessageに持つversion commitと、同名のGitタグを作成します。
+
+```sh
+# Patch release
+npm version patch -m "v%s"
+
+# Minor release
+npm version minor -m "v%s"
+
+# Major release
+npm version major -m "v%s"
+```
+
+作成されたversion commitと、そのcommitを指すタグを順にpushします。2つ目のコマンドは、`vX.Y.Z`という例示文字列ではなく、現在のcommitを指す実際のタグ名を取得してpushします。
+
+```sh
+git push origin main
+git push origin "$(git describe --tags --exact-match HEAD)"
+```
+
+タグのpushで`deploy.yml`が起動し、タグと`package.json`のversion一致を検証してから、Unit Testとproduction buildを実行します。その後、GitHub Pagesへのデプロイが成功した場合に限り、同じタグ名のGitHub Releaseが自動生成Release Notes付きで作成されます。Actionsの完了後、Pagesの表示バージョンとGitHub Releaseを確認してください。
