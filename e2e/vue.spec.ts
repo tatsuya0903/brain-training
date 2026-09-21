@@ -115,37 +115,46 @@ test('completes, shares, restores the result, and starts a new training', async 
 
   await expect(page).toHaveURL(/#\/result$/)
   await expect(page.getByRole('heading', { name: 'トレーニング結果' })).toBeVisible()
-  await expect(page.getByText('10問の回答を集計しました')).toBeVisible()
 
-  await expect(page.getByText('合計回答時間', { exact: true })).toBeVisible()
-  await expect(page.getByText('平均回答時間', { exact: true })).toBeVisible()
-  await expect(page.getByText('最短回答時間', { exact: true })).toBeVisible()
-  await expect(page.getByText('繰り上がりなし平均', { exact: true })).toBeVisible()
-  await expect(page.getByText('繰り上がりあり平均', { exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '考察' })).toBeVisible()
-  await expect(page.getByTestId('insight')).toBeVisible()
-  await expect(
-    page.getByText('回答時間と問題情報の詳しい集計は、次の実装で表示します。'),
-  ).toHaveCount(0)
+  await expect(page.getByTestId('app-icon')).toBeVisible()
+  await expect(page.getByText('合計タイム', { exact: true })).toBeVisible()
+  await expect(page.getByText('いつもの速さ', { exact: true })).toBeVisible()
+  await expect(page.getByText('ベスト', { exact: true })).toBeVisible()
+  await expect(page.getByText('平均回答時間', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '成績を共有' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '成績を共有' })).toHaveAttribute(
+    'aria-label',
+    '成績を共有',
+  )
 
   const totalSeconds = await displayedSeconds(page, 'total-time')
-  const averageSeconds = await displayedSeconds(page, 'average-time')
+  const typicalSeconds = await displayedSeconds(page, 'typical-time')
   const bestSeconds = await displayedSeconds(page, 'best-time')
 
   expect(totalSeconds).toBeGreaterThan(0)
-  expect(averageSeconds).toBeGreaterThan(0)
+  expect(typicalSeconds).toBeGreaterThan(0)
   expect(bestSeconds).toBeGreaterThanOrEqual(0)
-  expect(Math.abs(totalSeconds - averageSeconds * 10)).toBeLessThanOrEqual(0.06)
-  await expect(page.getByTestId('carry-difference')).toContainText('繰り上がり')
 
   const displayedResult = {
     total: await page.getByTestId('total-time').innerText(),
-    average: await page.getByTestId('average-time').innerText(),
     best: await page.getByTestId('best-time').innerText(),
-    noCarry: await page.getByTestId('no-carry-average').innerText(),
-    carry: await page.getByTestId('carry-average').innerText(),
-    difference: await page.getByTestId('carry-difference').innerText(),
   }
+
+  const detailsToggle = page.getByRole('button', { name: '詳細結果' })
+  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
+  await detailsToggle.click()
+  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByTestId('detail-row')).toHaveCount(10)
+  await expect(page.getByTestId('detail-bar')).toHaveCount(10)
+  for (const row of await page.getByTestId('detail-row').all()) {
+    await expect(row).toContainText(/\d+\s*\+\s*\d+/u)
+    await expect(row).toContainText(/\d+\.\d{2}秒/u)
+  }
+  for (const bar of await page.getByTestId('detail-bar').all()) {
+    await expect(bar).toHaveAttribute('style', /width:\s*\d+(?:\.\d+)?%;/u)
+  }
+  await detailsToggle.click()
+  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
 
   await page.getByRole('button', { name: '成績を共有' }).click()
   await expect(page.getByRole('dialog', { name: '成績を共有' })).toBeVisible()
@@ -165,11 +174,11 @@ test('completes, shares, restores the result, and starts a new training', async 
   await sharedPage.goto(sharedUrl!)
   await expect(sharedPage.getByTestId('shared-result-heading')).toHaveText('広島の父さんの結果')
   await expect(sharedPage.getByTestId('total-time')).toHaveText(displayedResult.total)
-  await expect(sharedPage.getByTestId('average-time')).toHaveText(displayedResult.average)
   await expect(sharedPage.getByTestId('best-time')).toHaveText(displayedResult.best)
-  await expect(sharedPage.getByTestId('no-carry-average')).toHaveText(displayedResult.noCarry)
-  await expect(sharedPage.getByTestId('carry-average')).toHaveText(displayedResult.carry)
-  await expect(sharedPage.getByTestId('carry-difference')).toHaveText(displayedResult.difference)
+  await expect(sharedPage.getByText('平均の速さ', { exact: true })).toBeVisible()
+  expect(await displayedSeconds(sharedPage, 'typical-time')).toBeGreaterThan(0)
+  await expect(sharedPage.getByRole('button', { name: '詳細結果' })).toHaveCount(0)
+  await expect(sharedPage.getByTestId('detail-row')).toHaveCount(0)
   await sharedPage.reload()
   await expect(sharedPage.getByTestId('shared-result-heading')).toHaveText('広島の父さんの結果')
   await sharedPage.getByRole('button', { name: 'もう一度挑戦する' }).click()
@@ -205,12 +214,15 @@ test('keeps completed local results within target mobile viewports', async ({ pa
   ]) {
     await page.setViewportSize(viewport)
     await expect(page.getByTestId('total-time')).toBeVisible()
-    await expect(page.getByTestId('carry-difference')).toBeVisible()
-    await expect(page.getByTestId('insight')).toBeVisible()
+    await expect(page.getByTestId('typical-time')).toBeVisible()
+    await expect(page.getByTestId('best-time')).toBeVisible()
     await expect(page.getByRole('button', { name: '成績を共有' })).toBeVisible()
     const retry = page.getByRole('button', { name: 'もう一度挑戦する' })
+    const detailsToggle = page.getByRole('button', { name: '詳細結果' })
     await expect(retry).toBeVisible()
-    const box = await retry.boundingBox()
+    await expect(detailsToggle).toBeVisible()
+    await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
+    const box = await detailsToggle.boundingBox()
     expect(box).not.toBeNull()
     expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 2)
     const height = await page.evaluate(() => document.documentElement.scrollHeight)
@@ -283,8 +295,11 @@ test('keeps mobile training controls and results within representative viewports
     await page.goto(`./#/result?share=${sharedResult}`)
     await expect(page.getByRole('heading', { name: 'トレーニング結果' })).toBeVisible()
     await expect(page.getByTestId('total-time')).toBeVisible()
-    await expect(page.getByTestId('carry-difference')).toBeVisible()
-    await expect(page.getByTestId('insight')).toBeVisible()
+    await expect(page.getByTestId('typical-time')).toBeVisible()
+    await expect(page.getByTestId('best-time')).toBeVisible()
+    await expect(page.getByText('平均の速さ', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '詳細結果' })).toHaveCount(0)
+    await expect(page.getByTestId('detail-row')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'もう一度挑戦する' })).toBeVisible()
     await expectNoHorizontalOverflow(page)
   }

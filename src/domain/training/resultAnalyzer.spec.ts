@@ -5,9 +5,11 @@ import {
   CARRY_DIFFERENCE_THRESHOLD_MS,
   analyzeCarryComparison,
   analyzeTrainingResults,
+  calculateMedianElapsedMs,
   formatCarryDifference,
   formatElapsedTime,
   generateTrainingInsights,
+  shouldShowCarryTrend,
 } from './resultAnalyzer'
 
 function result(overrides: Partial<QuestionResult> = {}): QuestionResult {
@@ -102,11 +104,12 @@ const sessionResults: QuestionResult[] = [
 ]
 
 describe('analyzeTrainingResults', () => {
-  it('calculates total, average, and best times', () => {
+  it('calculates total, average, median, and best times', () => {
     const analysis = analyzeTrainingResults(sessionResults)
 
     expect(analysis.totalMs).toBe(8300)
     expect(analysis.averageMs).toBe(830)
+    expect(analysis.medianMs).toBe(800)
     expect(analysis.bestMs).toBe(100)
   })
 
@@ -130,6 +133,7 @@ describe('analyzeTrainingResults', () => {
     expect(analyzeTrainingResults(shuffled)).toMatchObject({
       totalMs: 8300,
       averageMs: 830,
+      medianMs: 800,
       bestMs: 100,
     })
   })
@@ -149,6 +153,7 @@ describe('analyzeTrainingResults', () => {
       resultCount: 0,
       totalMs: 0,
       averageMs: null,
+      medianMs: null,
       bestMs: null,
       carryComparison: {
         carryAverageMs: null,
@@ -156,6 +161,71 @@ describe('analyzeTrainingResults', () => {
         carryMinusNoCarryMs: null,
       },
     })
+  })
+})
+
+describe('calculateMedianElapsedMs', () => {
+  it('returns null for no results', () => {
+    expect(calculateMedianElapsedMs([])).toBeNull()
+  })
+
+  it('returns the only elapsed time for one result', () => {
+    expect(calculateMedianElapsedMs([result({ elapsedMs: 123.45 })])).toBe(123.45)
+  })
+
+  it('returns the middle elapsed time for an odd count', () => {
+    expect(
+      calculateMedianElapsedMs([
+        result({ elapsedMs: 900 }),
+        result({ elapsedMs: 100 }),
+        result({ elapsedMs: 500 }),
+      ]),
+    ).toBe(500)
+  })
+
+  it('averages the two middle elapsed times for an even count', () => {
+    expect(
+      calculateMedianElapsedMs([
+        result({ elapsedMs: 800 }),
+        result({ elapsedMs: 200 }),
+        result({ elapsedMs: 600 }),
+        result({ elapsedMs: 400 }),
+      ]),
+    ).toBe(500)
+  })
+
+  it('uses the fifth and sixth elapsed times for ten results', () => {
+    expect(calculateMedianElapsedMs(sessionResults)).toBe(800)
+  })
+
+  it('does not mutate the source results', () => {
+    const source = [
+      result({ questionIndex: 1, elapsedMs: 300 }),
+      result({ questionIndex: 2, elapsedMs: 100 }),
+      result({ questionIndex: 3, elapsedMs: 200 }),
+    ]
+    const originalOrder = source.map((item) => item.elapsedMs)
+
+    calculateMedianElapsedMs(source)
+
+    expect(source.map((item) => item.elapsedMs)).toEqual(originalOrder)
+  })
+
+  it('returns the same median regardless of result order', () => {
+    const reversed = [...sessionResults].reverse()
+
+    expect(calculateMedianElapsedMs(reversed)).toBe(calculateMedianElapsedMs(sessionResults))
+  })
+
+  it('preserves decimal precision', () => {
+    expect(
+      calculateMedianElapsedMs([
+        result({ elapsedMs: 100.1 }),
+        result({ elapsedMs: 200.2 }),
+        result({ elapsedMs: 300.3 }),
+        result({ elapsedMs: 400.4 }),
+      ]),
+    ).toBeCloseTo(250.25)
   })
 })
 
@@ -259,6 +329,58 @@ describe('generateTrainingInsights', () => {
     })
 
     expect(insight?.type).toBe('carry-comparison-unavailable')
+  })
+})
+
+describe('shouldShowCarryTrend', () => {
+  it('shows the trend when carry questions are clearly slower', () => {
+    expect(
+      shouldShowCarryTrend({
+        carryAverageMs: 1300,
+        noCarryAverageMs: 1000,
+        carryMinusNoCarryMs: 300,
+      }),
+    ).toBe(true)
+  })
+
+  it('does not show the trend when carry questions are faster', () => {
+    expect(
+      shouldShowCarryTrend({
+        carryAverageMs: 800,
+        noCarryAverageMs: 1000,
+        carryMinusNoCarryMs: -200,
+      }),
+    ).toBe(false)
+  })
+
+  it('does not show the trend when the difference is inside the existing threshold', () => {
+    expect(
+      shouldShowCarryTrend({
+        carryAverageMs: 1099,
+        noCarryAverageMs: 1000,
+        carryMinusNoCarryMs: CARRY_DIFFERENCE_THRESHOLD_MS - 1,
+      }),
+    ).toBe(false)
+  })
+
+  it('does not show the trend when comparison data is unavailable', () => {
+    expect(
+      shouldShowCarryTrend({
+        carryAverageMs: null,
+        noCarryAverageMs: 1000,
+        carryMinusNoCarryMs: null,
+      }),
+    ).toBe(false)
+  })
+
+  it('shows the trend at the existing positive threshold boundary', () => {
+    expect(
+      shouldShowCarryTrend({
+        carryAverageMs: 1100,
+        noCarryAverageMs: 1000,
+        carryMinusNoCarryMs: CARRY_DIFFERENCE_THRESHOLD_MS,
+      }),
+    ).toBe(true)
   })
 })
 
