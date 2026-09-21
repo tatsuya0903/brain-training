@@ -84,6 +84,21 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth)
 }
 
+async function expectRetryBeforeDetails(page: Page) {
+  const retryPrecedesDetails = await page.evaluate(() => {
+    const retry = document.querySelector('[data-testid="retry-button"]')
+    const details = document.querySelector('[data-testid="details-heading"]')
+
+    return Boolean(
+      retry &&
+      details &&
+      (retry.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+    )
+  })
+
+  expect(retryPrecedesDetails).toBe(true)
+}
+
 async function expectCalculatorNumberPad(page: Page) {
   const labels = await page
     .getByLabel('回答テンキー')
@@ -193,8 +208,9 @@ test('completes, shares, restores the result, and starts a new training', async 
 
   await expect(page.getByTestId('app-icon')).toBeVisible()
   await expect(page.getByText('合計タイム', { exact: true })).toBeVisible()
-  await expect(page.getByText('いつもの速さ', { exact: true })).toBeVisible()
   await expect(page.getByText('ベスト', { exact: true })).toBeVisible()
+  await expect(page.getByText('中央値', { exact: true })).toBeVisible()
+  await expect(page.getByText('いつもの速さ', { exact: true })).toHaveCount(0)
   await expect(page.getByText('平均回答時間', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '成績を共有' })).toBeVisible()
   await expect(page.getByRole('button', { name: '成績を共有' })).toHaveAttribute(
@@ -203,25 +219,24 @@ test('completes, shares, restores the result, and starts a new training', async 
   )
 
   const totalSeconds = await displayedSeconds(page, 'total-time')
-  const typicalSeconds = await displayedSeconds(page, 'typical-time')
   const bestSeconds = await displayedSeconds(page, 'best-time')
+  const medianSeconds = await displayedSeconds(page, 'median-time')
 
   expect(totalSeconds).toBeGreaterThan(0)
-  expect(typicalSeconds).toBeGreaterThan(0)
   expect(bestSeconds).toBeGreaterThanOrEqual(0)
+  expect(medianSeconds).toBeGreaterThanOrEqual(0)
 
   const displayedResult = {
     total: await displayedSeconds(page, 'total-time'),
-    typical: await displayedSeconds(page, 'typical-time'),
     best: await displayedSeconds(page, 'best-time'),
+    median: await displayedSeconds(page, 'median-time'),
   }
 
-  const detailsToggle = page.getByRole('button', { name: '詳細結果' })
-  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
-  await detailsToggle.click()
-  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('heading', { name: '詳細結果' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '詳細結果' })).toHaveCount(0)
   await expect(page.getByTestId('detail-row')).toHaveCount(10)
   await expect(page.getByTestId('detail-bar')).toHaveCount(10)
+  await expectRetryBeforeDetails(page)
   for (const row of await page.getByTestId('detail-row').all()) {
     await expect(row).toContainText(/\d+\s*\+\s*\d+/u)
     await expect(row).toContainText(/\d+\.\d{2}秒/u)
@@ -230,8 +245,6 @@ test('completes, shares, restores the result, and starts a new training', async 
     await expect(bar).toHaveAttribute('style', /width:\s*\d+(?:\.\d+)?%;/u)
   }
   const localDetails = await page.getByTestId('detail-row').allInnerTexts()
-  await detailsToggle.click()
-  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
 
   await page.getByRole('button', { name: '成績を共有' }).click()
   await expect(page.getByRole('dialog', { name: '成績を共有' })).toBeVisible()
@@ -251,19 +264,21 @@ test('completes, shares, restores the result, and starts a new training', async 
   const sharedPage = await context.newPage()
   await sharedPage.goto(sharedUrl!)
   await expect(sharedPage.getByTestId('shared-result-heading')).toHaveText('広島の父さんの結果')
-  await expect(sharedPage.getByText('いつもの速さ', { exact: true })).toBeVisible()
+  await expect(sharedPage.getByText('中央値', { exact: true })).toBeVisible()
+  await expect(sharedPage.getByText('いつもの速さ', { exact: true })).toHaveCount(0)
   expect(
     Math.abs((await displayedSeconds(sharedPage, 'total-time')) - displayedResult.total),
   ).toBeLessThanOrEqual(0.011)
   expect(
-    Math.abs((await displayedSeconds(sharedPage, 'typical-time')) - displayedResult.typical),
+    Math.abs((await displayedSeconds(sharedPage, 'median-time')) - displayedResult.median),
   ).toBeLessThanOrEqual(0.011)
   expect(
     Math.abs((await displayedSeconds(sharedPage, 'best-time')) - displayedResult.best),
   ).toBeLessThanOrEqual(0.011)
-  const sharedDetailsToggle = sharedPage.getByRole('button', { name: '詳細結果' })
-  await sharedDetailsToggle.click()
+  await expect(sharedPage.getByRole('heading', { name: '詳細結果' })).toBeVisible()
+  await expect(sharedPage.getByRole('button', { name: '詳細結果' })).toHaveCount(0)
   await expect(sharedPage.getByTestId('detail-row')).toHaveCount(10)
+  await expectRetryBeforeDetails(sharedPage)
   for (const row of await sharedPage.getByTestId('detail-row').all()) {
     await expect(row).toContainText(/\d+\s*\+\s*\d+/u)
     await expect(row).toContainText(/\d+\.\d{2}秒/u)
@@ -339,7 +354,7 @@ test('completes training with regular and numpad keyboard controls', async ({ pa
   await expect(playerName).toHaveValue('12')
 })
 
-test('keeps completed local results within target mobile viewports', async ({ page }) => {
+test('keeps completed local results usable within target mobile viewports', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('./#/')
   await page.getByRole('button', { name: 'トレーニング開始' }).click()
@@ -354,25 +369,21 @@ test('keeps completed local results within target mobile viewports', async ({ pa
 
   await expect(page).toHaveURL(/#\/result$/)
   for (const viewport of [
+    { width: 320, height: 568 },
     { width: 390, height: 844 },
     { width: 393, height: 852 },
     { width: 430, height: 932 },
   ]) {
     await page.setViewportSize(viewport)
     await expect(page.getByTestId('total-time')).toBeVisible()
-    await expect(page.getByTestId('typical-time')).toBeVisible()
     await expect(page.getByTestId('best-time')).toBeVisible()
+    await expect(page.getByTestId('median-time')).toBeVisible()
     await expect(page.getByRole('button', { name: '成績を共有' })).toBeVisible()
     const retry = page.getByRole('button', { name: 'もう一度挑戦する' })
-    const detailsToggle = page.getByRole('button', { name: '詳細結果' })
     await expect(retry).toBeVisible()
-    await expect(detailsToggle).toBeVisible()
-    await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
-    const box = await detailsToggle.boundingBox()
-    expect(box).not.toBeNull()
-    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 2)
-    const height = await page.evaluate(() => document.documentElement.scrollHeight)
-    expect(height).toBeLessThanOrEqual(viewport.height + 2)
+    await expect(page.getByRole('heading', { name: '詳細結果' })).toBeVisible()
+    await expect(page.getByTestId('detail-row')).toHaveCount(10)
+    await expectRetryBeforeDetails(page)
     await expectNoHorizontalOverflow(page)
   }
 })
@@ -452,12 +463,15 @@ test('keeps mobile training controls and results within representative viewports
     await page.goto(`./#/result?s=${sharedResult}`)
     await expect(page.getByRole('heading', { name: 'トレーニング結果' })).toBeVisible()
     await expect(page.getByTestId('total-time')).toBeVisible()
-    await expect(page.getByTestId('typical-time')).toBeVisible()
     await expect(page.getByTestId('best-time')).toBeVisible()
-    await expect(page.getByText('いつもの速さ', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: '詳細結果' })).toHaveCount(1)
-    await expect(page.getByTestId('detail-row')).toHaveCount(0)
+    await expect(page.getByTestId('median-time')).toBeVisible()
+    await expect(page.getByText('中央値', { exact: true })).toBeVisible()
+    await expect(page.getByText('いつもの速さ', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: '詳細結果' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '詳細結果' })).toHaveCount(0)
+    await expect(page.getByTestId('detail-row')).toHaveCount(10)
     await expect(page.getByRole('button', { name: 'もう一度挑戦する' })).toBeVisible()
+    await expectRetryBeforeDetails(page)
     await expectNoHorizontalOverflow(page)
   }
 })
