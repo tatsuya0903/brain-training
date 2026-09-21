@@ -154,6 +154,10 @@ test('completes, shares, restores the result, and starts a new training', async 
   await expect(page.getByLabel('トレーニング進捗')).toHaveAttribute('aria-valuetext', '1 / 10')
   await expect(page.locator('.progress-segment.active')).toHaveCount(1)
   await expect(page.getByTestId('elapsed-time')).toHaveText(/^\d+\.\d秒\s*$/u)
+  await expect(page.getByRole('button', { name: '効果音をオフにする' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
   await expectCalculatorNumberPad(page)
 
   await page.getByRole('button', { name: '7を入力' }).click()
@@ -311,6 +315,21 @@ test('completes training with regular and numpad keyboard controls', async ({ pa
   await page.getByRole('button', { name: 'トレーニング開始' }).click()
   await expect(page.getByText('問題 1 / 10')).toBeVisible()
 
+  await page.getByRole('button', { name: '効果音をオフにする' }).click()
+  await expect(page.getByRole('button', { name: '効果音をオンにする' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  expect(await page.evaluate(() => localStorage.getItem('brain-training:sound-enabled'))).toBe(
+    'false',
+  )
+  await page.reload()
+  await expect(page.getByText('問題 1 / 10')).toBeVisible()
+  await expect(page.getByRole('button', { name: '効果音をオンにする' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+
   await page.keyboard.press('7')
   await page.keyboard.press('5')
   await page.keyboard.press('3')
@@ -440,18 +459,24 @@ test('keeps mobile training controls and results within representative viewports
     await expect(page.getByTestId('problem')).toBeVisible()
     await expect(page.getByLabel('入力中の回答')).toBeVisible()
     await expect(page.getByLabel('回答テンキー')).toBeVisible()
+    const soundToggle = page.getByRole('button', { name: /効果音を(?:オフ|オン)にする/u })
+    await expect(soundToggle).toBeVisible()
     await expect(page.locator('input')).toHaveCount(0)
     await expectCalculatorNumberPad(page)
     await expectNoHorizontalOverflow(page)
 
     const numberPadBox = await page.getByLabel('回答テンキー').boundingBox()
     const okButtonBox = await page.getByRole('button', { name: '回答を決定' }).boundingBox()
+    const soundToggleBox = await soundToggle.boundingBox()
 
     expect(numberPadBox).not.toBeNull()
     expect(okButtonBox).not.toBeNull()
+    expect(soundToggleBox).not.toBeNull()
     expect(numberPadBox!.x).toBeGreaterThanOrEqual(0)
     expect(numberPadBox!.x + numberPadBox!.width).toBeLessThanOrEqual(viewport.width + 1)
     expect(okButtonBox!.y + okButtonBox!.height).toBeLessThanOrEqual(viewport.height + 1)
+    expect(soundToggleBox!.width).toBeGreaterThanOrEqual(43.9)
+    expect(soundToggleBox!.height).toBeGreaterThanOrEqual(43.9)
 
     const trainingHeight = await page.evaluate(() => document.documentElement.scrollHeight)
     expect(trainingHeight).toBeLessThanOrEqual(viewport.height + 1)

@@ -6,7 +6,26 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import App from '../App.vue'
 import TrainingView from '../views/TrainingView.vue'
 import vuetify from '../plugins/vuetify'
+import { SOUND_ENABLED_STORAGE_KEY } from '../composables/useSoundPreference'
 import { CORRECT_FEEDBACK_MS, useTrainingStore } from '../stores/training'
+
+const soundMocks = vi.hoisted(() => ({
+  digit: vi.fn<() => void>(),
+  delete: vi.fn<() => void>(),
+  submit: vi.fn<() => void>(),
+  correct: vi.fn<() => void>(),
+  incorrect: vi.fn<() => void>(),
+}))
+
+vi.mock('../domain/training/sounds', () => ({
+  createTrainingSoundPlayer: (isEnabled: () => boolean) => ({
+    playDigitSound: () => isEnabled() && soundMocks.digit(),
+    playDeleteSound: () => isEnabled() && soundMocks.delete(),
+    playSubmitSound: () => isEnabled() && soundMocks.submit(),
+    playCorrectSound: () => isEnabled() && soundMocks.correct(),
+    playIncorrectSound: () => isEnabled() && soundMocks.incorrect(),
+  }),
+}))
 
 let now: number
 let wrapper: VueWrapper
@@ -73,6 +92,8 @@ function feedbackText() {
 describe('TrainingView feedback and number pad', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    localStorage.clear()
+    for (const sound of Object.values(soundMocks)) sound.mockReset()
     now = 100
     nextFrame = 0
     frameCallbacks = new Map()
@@ -103,6 +124,7 @@ describe('TrainingView feedback and number pad', () => {
     }
 
     expect(answerText()).toBe('0123456789')
+    expect(soundMocks.digit).toHaveBeenCalledTimes(10)
   })
 
   it('accepts every numpad digit key through the same digit mapping', async () => {
@@ -114,6 +136,7 @@ describe('TrainingView feedback and number pad', () => {
     }
 
     expect(answerText()).toBe('0123456789')
+    expect(soundMocks.digit).toHaveBeenCalledTimes(10)
   })
 
   it.each([
@@ -128,6 +151,9 @@ describe('TrainingView feedback and number pad', () => {
     expect(event.defaultPrevented).toBe(true)
     expect(store.results).toHaveLength(1)
     expect(feedbackText()).toContain('正解！')
+    expect(soundMocks.submit).toHaveBeenCalledOnce()
+    expect(soundMocks.correct).toHaveBeenCalledOnce()
+    expect(soundMocks.incorrect).not.toHaveBeenCalled()
   })
 
   it('handles Backspace and ignores repeated digit, Enter, and Backspace events', async () => {
@@ -135,6 +161,7 @@ describe('TrainingView feedback and number pad', () => {
     await pressKey('7', { code: 'Digit7' })
     await pressKey('5', { code: 'Digit5' })
     await pressKey('3', { code: 'Digit3' })
+    for (const sound of Object.values(soundMocks)) sound.mockClear()
 
     expect((await pressKey('1', { code: 'Digit1', repeat: true })).defaultPrevented).toBe(true)
     expect((await pressKey('Enter', { code: 'Enter', repeat: true })).defaultPrevented).toBe(true)
@@ -143,10 +170,14 @@ describe('TrainingView feedback and number pad', () => {
     ).toBe(true)
     expect(answerText()).toBe('753')
     expect(store.results).toHaveLength(0)
+    expect(soundMocks.digit).not.toHaveBeenCalled()
+    expect(soundMocks.submit).not.toHaveBeenCalled()
+    expect(soundMocks.delete).not.toHaveBeenCalled()
 
     const backspace = await pressKey('Backspace', { code: 'Backspace' })
     expect(backspace.defaultPrevented).toBe(true)
     expect(answerText()).toBe('75')
+    expect(soundMocks.delete).toHaveBeenCalledOnce()
   })
 
   it('keeps empty Enter harmless and leaves unrelated and text-input keys alone', async () => {
@@ -157,6 +188,9 @@ describe('TrainingView feedback and number pad', () => {
     expect(store.currentQuestionNumber).toBe(1)
     expect(store.questionStartedAt).toBe(100)
     expect(feedbackText()).toBe('')
+    expect(soundMocks.submit).not.toHaveBeenCalled()
+    expect(soundMocks.correct).not.toHaveBeenCalled()
+    expect(soundMocks.incorrect).not.toHaveBeenCalled()
     expect((await pressKey('a', { code: 'KeyA' })).defaultPrevented).toBe(false)
 
     const input = document.createElement('input')
@@ -172,6 +206,7 @@ describe('TrainingView feedback and number pad', () => {
     await typeAnswer(store.currentQuestion!.answer)
     await pressKey('Enter', { code: 'Enter' })
     expect(feedbackText()).toContain('正解！')
+    for (const sound of Object.values(soundMocks)) sound.mockClear()
 
     const appendDigit = vi.spyOn(store, 'appendDigit')
     const deleteLastDigit = vi.spyOn(store, 'deleteLastDigit')
@@ -185,6 +220,9 @@ describe('TrainingView feedback and number pad', () => {
     expect(submitAnswer).not.toHaveBeenCalled()
     expect(store.currentAnswer).toBe('')
     expect(store.results).toHaveLength(1)
+    expect(soundMocks.digit).not.toHaveBeenCalled()
+    expect(soundMocks.delete).not.toHaveBeenCalled()
+    expect(soundMocks.submit).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(CORRECT_FEEDBACK_MS)
     expect(store.currentQuestionNumber).toBe(2)
@@ -245,6 +283,8 @@ describe('TrainingView feedback and number pad', () => {
     expect(answerText()).toBe('583')
     await tap('1文字削除')
     expect(answerText()).toBe('58')
+    expect(soundMocks.digit).toHaveBeenCalledTimes(3)
+    expect(soundMocks.delete).toHaveBeenCalledOnce()
   })
 
   it('keeps empty deletion and empty OK harmless without verdict haptics', async () => {
@@ -257,6 +297,102 @@ describe('TrainingView feedback and number pad', () => {
     expect(store.results).toHaveLength(0)
     expect(feedbackText()).toBe('')
     expect(vibrate.mock.calls).toEqual([[10]])
+    expect(soundMocks.delete).not.toHaveBeenCalled()
+    expect(soundMocks.submit).not.toHaveBeenCalled()
+    expect(soundMocks.correct).not.toHaveBeenCalled()
+    expect(soundMocks.incorrect).not.toHaveBeenCalled()
+  })
+
+  it('plays submit plus the matching verdict sound for accepted on-screen answers', async () => {
+    const { store } = await mountTrainingView()
+    await tap('0を入力')
+    for (const sound of Object.values(soundMocks)) sound.mockClear()
+    await tap('回答を決定')
+
+    expect(soundMocks.submit).toHaveBeenCalledOnce()
+    expect(soundMocks.incorrect).toHaveBeenCalledOnce()
+    expect(soundMocks.correct).not.toHaveBeenCalled()
+
+    for (const digit of String(store.currentQuestion!.answer)) await tap(`${digit}を入力`)
+    for (const sound of Object.values(soundMocks)) sound.mockClear()
+    await tap('回答を決定')
+
+    expect(soundMocks.submit).toHaveBeenCalledOnce()
+    expect(soundMocks.correct).toHaveBeenCalledOnce()
+    expect(soundMocks.incorrect).not.toHaveBeenCalled()
+  })
+
+  it('toggles all sounds with an accessible persisted control', async () => {
+    const { store } = await mountTrainingView()
+    const disable = wrapper.get('[aria-label="効果音をオフにする"]')
+    expect(disable.attributes('aria-pressed')).toBe('true')
+
+    await disable.trigger('click')
+    const enable = wrapper.get('[aria-label="効果音をオンにする"]')
+    expect(enable.attributes('aria-pressed')).toBe('false')
+    expect(localStorage.getItem(SOUND_ENABLED_STORAGE_KEY)).toBe('false')
+
+    await tap('5を入力')
+    await tap('1文字削除')
+    await tap('0を入力')
+    await tap('回答を決定')
+    expect(feedbackText()).toContain('不正解')
+    for (const sound of Object.values(soundMocks)) expect(sound).not.toHaveBeenCalled()
+
+    for (const digit of String(store.currentQuestion!.answer)) await tap(`${digit}を入力`)
+    await tap('回答を決定')
+    expect(feedbackText()).toContain('正解！')
+    for (const sound of Object.values(soundMocks)) expect(sound).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(CORRECT_FEEDBACK_MS)
+
+    await enable.trigger('click')
+    expect(wrapper.get('[aria-label="効果音をオフにする"]').attributes('aria-pressed')).toBe('true')
+    expect(localStorage.getItem(SOUND_ENABLED_STORAGE_KEY)).toBe('true')
+    await tap(`${String(store.currentQuestion!.answer)[0]}を入力`)
+    expect(soundMocks.digit).toHaveBeenCalledOnce()
+  })
+
+  it('restores the saved sound preference on mount', async () => {
+    localStorage.setItem(SOUND_ENABLED_STORAGE_KEY, 'false')
+    await mountTrainingView()
+
+    expect(wrapper.get('[aria-label="効果音をオンにする"]').attributes('aria-pressed')).toBe(
+      'false',
+    )
+    await tap('7を入力')
+    expect(soundMocks.digit).not.toHaveBeenCalled()
+  })
+
+  it('keeps the toggle usable when localStorage access fails', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError')
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError')
+    })
+
+    await expect(mountTrainingView()).resolves.toBeDefined()
+    await wrapper.get('[aria-label="効果音をオフにする"]').trigger('click')
+    expect(wrapper.get('[aria-label="効果音をオンにする"]').attributes('aria-pressed')).toBe(
+      'false',
+    )
+  })
+
+  it('continues game flow if every requested sound throws', async () => {
+    for (const sound of Object.values(soundMocks)) {
+      sound.mockImplementation(() => {
+        throw new Error('audio failure')
+      })
+    }
+    const { store } = await mountTrainingView()
+
+    for (const digit of String(store.currentQuestion!.answer)) await tap(`${digit}を入力`)
+    await tap('回答を決定')
+    expect(feedbackText()).toContain('正解！')
+    expect(store.results).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(CORRECT_FEEDBACK_MS)
+    expect(store.currentQuestionNumber).toBe(2)
   })
 
   it('renders ten segments and updates from the performance clock, including a long frame gap', async () => {
@@ -300,12 +436,18 @@ describe('TrainingView feedback and number pad', () => {
     expect(store.results[0]?.elapsedMs).toBe(3421.25)
     expect(store.questionStartedAt).toBeNull()
     expect(
-      wrapper.findAll('button').every((button) => button.attributes('disabled') !== undefined),
+      wrapper
+        .get('[aria-label="回答テンキー"]')
+        .findAll('button')
+        .every((button) => button.attributes('disabled') !== undefined),
     ).toBe(true)
+    for (const sound of Object.values(soundMocks)) sound.mockClear()
     await tap('5を入力')
     await tap('回答を決定')
     expect(store.currentAnswer).toBe('')
     expect(store.results).toHaveLength(1)
+    expect(soundMocks.digit).not.toHaveBeenCalled()
+    expect(soundMocks.submit).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(CORRECT_FEEDBACK_MS - 1)
     expect(store.currentQuestionNumber).toBe(1)
     const begin = vi
