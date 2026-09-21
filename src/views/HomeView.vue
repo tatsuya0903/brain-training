@@ -6,6 +6,7 @@ import { useTrainingStore } from '../stores/training'
 
 const router = useRouter()
 const trainingStore = useTrainingStore()
+const appVersion = `v${__APP_VERSION__}`
 
 function startTraining() {
   trainingStore.startTraining()
@@ -27,6 +28,7 @@ function startTraining() {
         </v-btn>
       </v-card>
     </v-container>
+    <small class="app-version" data-testid="app-version">{{ appVersion }}</small>
   </v-main>
 </template>
 
@@ -57,5 +59,16 @@ function startTraining() {
   font-size: clamp(1.75rem, 8vw, 2.5rem);
   line-height: 1.15;
   white-space: nowrap;
+}
+
+.app-version {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(8px, env(safe-area-inset-bottom));
+  color: rgba(40, 35, 45, 0.68);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
 }
 </style>

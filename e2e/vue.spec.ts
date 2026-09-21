@@ -1,6 +1,12 @@
 import { test, expect, type Page } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import { encodeSharedResult } from '../src/domain/sharing/sharedResultCodec'
+
+const { version: packageVersion } = JSON.parse(
+  readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
+) as { version: string }
 
 async function currentCorrectAnswer(page: Page) {
   const problem = await page.getByTestId('problem').innerText()
@@ -258,6 +264,10 @@ test('completes, shares, restores the result, and starts a new training', async 
   const sharedDetailsToggle = sharedPage.getByRole('button', { name: '詳細結果' })
   await sharedDetailsToggle.click()
   await expect(sharedPage.getByTestId('detail-row')).toHaveCount(10)
+  for (const row of await sharedPage.getByTestId('detail-row').all()) {
+    await expect(row).toContainText(/\d+\s*\+\s*\d+/u)
+    await expect(row).toContainText(/\d+\.\d{2}秒/u)
+  }
   const sharedDetails = await sharedPage.getByTestId('detail-row').allInnerTexts()
   for (const [index, sharedDetail] of sharedDetails.entries()) {
     const localExpression = localDetails[index]?.match(/\d+\s*\+\s*\d+/u)?.[0]
@@ -410,6 +420,8 @@ test('keeps mobile training controls and results within representative viewports
 
     await page.goto('./#/')
     await expect(page.getByRole('heading', { name: '暗算トレーニング' })).toBeVisible()
+    await expect(page.getByTestId('app-version')).toHaveText(`v${packageVersion}`)
+    await expect(page.getByRole('button', { name: 'トレーニング開始' })).toBeVisible()
     await expectNoHorizontalOverflow(page)
 
     await page.getByRole('button', { name: 'トレーニング開始' }).click()
