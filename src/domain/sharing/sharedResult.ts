@@ -1,50 +1,54 @@
-import type { TrainingAnalysis } from '../training/resultAnalyzer'
-import { generateTrainingInsights, type CarryComparison } from '../training/resultAnalyzer'
-import { SHARED_RESULT_VERSION, type SharedResultPayload } from './sharedResultCodec'
-
-export interface SharedResultAnalysis {
-  resultCount: number
-  totalMs: number
-  averageMs: number
-  bestMs: number | null
-  carryComparison: CarryComparison
-  insights: ReturnType<typeof generateTrainingInsights>
-}
+import { deriveQuestionMetadata } from '../training/questionGenerator'
+import type { QuestionResult } from '../training/types'
+import {
+  SHARED_RESULT_COUNT,
+  SHARED_RESULT_VERSION,
+  type SharedResultPayload,
+} from './sharedResultCodec'
 
 export function createSharedResultPayload(
-  analysis: TrainingAnalysis,
+  results: readonly QuestionResult[],
   playerName: string,
 ): SharedResultPayload | null {
-  if (analysis.resultCount === 0 || analysis.averageMs === null) {
+  if (results.length !== SHARED_RESULT_COUNT) {
     return null
   }
 
   return {
     version: SHARED_RESULT_VERSION,
     playerName,
-    resultCount: analysis.resultCount,
-    totalMs: analysis.totalMs,
-    averageMs: analysis.averageMs,
-    bestMs: analysis.bestMs,
-    carryAverageMs: analysis.carryComparison.carryAverageMs,
-    noCarryAverageMs: analysis.carryComparison.noCarryAverageMs,
-    carryMinusNoCarryMs: analysis.carryComparison.carryMinusNoCarryMs,
+    results: results.map(({ leftOperand, rightOperand, elapsedMs }) => ({
+      leftOperand,
+      rightOperand,
+      elapsedMs,
+    })),
   }
 }
 
-export function createSharedResultAnalysis(payload: SharedResultPayload): SharedResultAnalysis {
-  const carryComparison: CarryComparison = {
-    carryAverageMs: payload.carryAverageMs,
-    noCarryAverageMs: payload.noCarryAverageMs,
-    carryMinusNoCarryMs: payload.carryMinusNoCarryMs,
+export function reconstructSharedResults(payload: SharedResultPayload): QuestionResult[] | null {
+  if (payload.results.length !== SHARED_RESULT_COUNT) {
+    return null
   }
 
-  return {
-    resultCount: payload.resultCount,
-    totalMs: payload.totalMs,
-    averageMs: payload.averageMs,
-    bestMs: payload.bestMs,
-    carryComparison,
-    insights: generateTrainingInsights(carryComparison),
+  const results: QuestionResult[] = []
+
+  for (const [index, result] of payload.results.entries()) {
+    const metadata = deriveQuestionMetadata(result.leftOperand, result.rightOperand)
+    if (!metadata) {
+      return null
+    }
+
+    results.push({
+      questionIndex: index + 1,
+      leftOperand: result.leftOperand,
+      rightOperand: result.rightOperand,
+      correctAnswer: metadata.answer,
+      elapsedMs: result.elapsedMs,
+      onesCarry: metadata.onesCarry,
+      threeDigits: metadata.threeDigits,
+      category: metadata.category,
+    })
   }
+
+  return results
 }

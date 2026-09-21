@@ -1,63 +1,28 @@
-export const SHARED_RESULT_VERSION = 1 as const
+import { deriveQuestionMetadata } from '../training/questionGenerator'
 
-const MAX_ENCODED_LENGTH = 4096
+export const SHARED_RESULT_VERSION = 1 as const
+export const SHARED_RESULT_COUNT = 10
+export const MAX_PLAYER_NAME_BYTES = 0xff
 export const MAX_PLAYER_NAME_LENGTH = 100
+export const MAX_SHARED_ELAPSED_MS = 0xffffff
+
+const HEADER_BYTES = 2
+const QUESTION_BYTES = 5
+const QUESTIONS_TOTAL_BYTES = SHARED_RESULT_COUNT * QUESTION_BYTES
+const MIN_PAYLOAD_BYTES = HEADER_BYTES + QUESTIONS_TOTAL_BYTES
+const MAX_PAYLOAD_BYTES = MIN_PAYLOAD_BYTES + MAX_PLAYER_NAME_BYTES
+const MAX_ENCODED_LENGTH = Math.ceil((MAX_PAYLOAD_BYTES * 4) / 3)
+
+export interface SharedQuestionResult {
+  leftOperand: number
+  rightOperand: number
+  elapsedMs: number
+}
 
 export interface SharedResultPayload {
   version: typeof SHARED_RESULT_VERSION
   playerName: string
-  resultCount: number
-  totalMs: number
-  averageMs: number
-  bestMs: number | null
-  carryAverageMs: number | null
-  noCarryAverageMs: number | null
-  carryMinusNoCarryMs: number | null
-}
-
-function isSafeNonNegativeNumber(value: unknown): value is number {
-  return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    value <= Number.MAX_SAFE_INTEGER &&
-    value >= 0
-  )
-}
-
-function isSafeNumber(value: unknown): value is number {
-  return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    Math.abs(value) <= Number.MAX_SAFE_INTEGER
-  )
-}
-
-function isNullableNonNegativeNumber(value: unknown): value is number | null {
-  return value === null || isSafeNonNegativeNumber(value)
-}
-
-function isSharedResultPayload(value: unknown): value is SharedResultPayload {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false
-  }
-
-  const candidate: Record<string, unknown> = value as Record<string, unknown>
-
-  return (
-    candidate.version === SHARED_RESULT_VERSION &&
-    typeof candidate.playerName === 'string' &&
-    candidate.playerName.length <= MAX_PLAYER_NAME_LENGTH &&
-    typeof candidate.resultCount === 'number' &&
-    Number.isSafeInteger(candidate.resultCount) &&
-    candidate.resultCount > 0 &&
-    candidate.resultCount <= 1000 &&
-    isSafeNonNegativeNumber(candidate.totalMs) &&
-    isSafeNonNegativeNumber(candidate.averageMs) &&
-    isNullableNonNegativeNumber(candidate.bestMs) &&
-    isNullableNonNegativeNumber(candidate.carryAverageMs) &&
-    isNullableNonNegativeNumber(candidate.noCarryAverageMs) &&
-    (candidate.carryMinusNoCarryMs === null || isSafeNumber(candidate.carryMinusNoCarryMs))
-  )
+  results: SharedQuestionResult[]
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -81,14 +46,11 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes
 }
 
-export function encodeSharedResult(payload: SharedResultPayload): string {
-  const json = JSON.stringify(payload)
-  const base64 = bytesToBase64(new TextEncoder().encode(json))
-
-  return base64.replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '')
+function bytesToBase64Url(bytes: Uint8Array): string {
+  return bytesToBase64(bytes).replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '')
 }
 
-export function decodeSharedResult(encoded: string): SharedResultPayload | null {
+function base64UrlToBytes(encoded: string): Uint8Array | null {
   if (
     encoded.length === 0 ||
     encoded.length > MAX_ENCODED_LENGTH ||
@@ -100,11 +62,117 @@ export function decodeSharedResult(encoded: string): SharedResultPayload | null 
 
   try {
     const base64 = encoded.replace(/-/gu, '+').replace(/_/gu, '/')
-    const paddedBase64 = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
-    const json = new TextDecoder('utf-8', { fatal: true }).decode(base64ToBytes(paddedBase64))
-    const parsed: unknown = JSON.parse(json)
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
+    const bytes = base64ToBytes(padded)
+    return bytesToBase64Url(bytes) === encoded ? bytes : null
+  } catch {
+    return null
+  }
+}
 
-    return isSharedResultPayload(parsed) ? parsed : null
+function quantizeElapsedMs(elapsedMs: number): number {
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0 || elapsedMs > MAX_SHARED_ELAPSED_MS) {
+    throw new RangeError(`elapsedMs must be between 1 and ${MAX_SHARED_ELAPSED_MS}`)
+  }
+
+  const rounded = Math.round(elapsedMs)
+  if (rounded < 1 || rounded > MAX_SHARED_ELAPSED_MS) {
+    throw new RangeError(`rounded elapsedMs must be between 1 and ${MAX_SHARED_ELAPSED_MS}`)
+  }
+
+  return rounded
+}
+
+function validateQuestionResult(result: SharedQuestionResult): number {
+  if (!deriveQuestionMetadata(result.leftOperand, result.rightOperand)) {
+    throw new RangeError('operands must form a valid training question using values from 1 to 99')
+  }
+
+  return quantizeElapsedMs(result.elapsedMs)
+}
+
+export function encodeSharedResult(payload: SharedResultPayload): string {
+  if (payload.version !== SHARED_RESULT_VERSION) {
+    throw new RangeError(`version must be ${SHARED_RESULT_VERSION}`)
+  }
+  if (payload.results.length !== SHARED_RESULT_COUNT) {
+    throw new RangeError(`results must contain exactly ${SHARED_RESULT_COUNT} questions`)
+  }
+
+  const nameBytes = new TextEncoder().encode(payload.playerName)
+  if (nameBytes.length > MAX_PLAYER_NAME_BYTES) {
+    throw new RangeError(`playerName must be at most ${MAX_PLAYER_NAME_BYTES} UTF-8 bytes`)
+  }
+
+  const bytes = new Uint8Array(HEADER_BYTES + nameBytes.length + QUESTIONS_TOTAL_BYTES)
+  bytes[0] = SHARED_RESULT_VERSION
+  bytes[1] = nameBytes.length
+  bytes.set(nameBytes, HEADER_BYTES)
+
+  let offset = HEADER_BYTES + nameBytes.length
+  for (const result of payload.results) {
+    const elapsedMs = validateQuestionResult(result)
+    bytes[offset] = result.leftOperand
+    bytes[offset + 1] = result.rightOperand
+    bytes[offset + 2] = Math.floor(elapsedMs / 0x10000)
+    bytes[offset + 3] = Math.floor(elapsedMs / 0x100) & 0xff
+    bytes[offset + 4] = elapsedMs & 0xff
+    offset += QUESTION_BYTES
+  }
+
+  return bytesToBase64Url(bytes)
+}
+
+export function decodeSharedResult(encoded: string): SharedResultPayload | null {
+  const bytes = base64UrlToBytes(encoded)
+
+  if (!bytes || bytes.length < MIN_PAYLOAD_BYTES || bytes[0] !== SHARED_RESULT_VERSION) {
+    return null
+  }
+
+  const nameLength = bytes[1]
+  if (
+    nameLength === undefined ||
+    bytes.length !== HEADER_BYTES + nameLength + QUESTIONS_TOTAL_BYTES
+  ) {
+    return null
+  }
+
+  try {
+    const playerName = new TextDecoder('utf-8', { fatal: true }).decode(
+      bytes.subarray(HEADER_BYTES, HEADER_BYTES + nameLength),
+    )
+    const results: SharedQuestionResult[] = []
+    let offset = HEADER_BYTES + nameLength
+
+    for (let index = 0; index < SHARED_RESULT_COUNT; index += 1) {
+      const leftOperand = bytes[offset]
+      const rightOperand = bytes[offset + 1]
+      const elapsedHigh = bytes[offset + 2]
+      const elapsedMiddle = bytes[offset + 3]
+      const elapsedLow = bytes[offset + 4]
+
+      if (
+        leftOperand === undefined ||
+        rightOperand === undefined ||
+        elapsedHigh === undefined ||
+        elapsedMiddle === undefined ||
+        elapsedLow === undefined ||
+        !deriveQuestionMetadata(leftOperand, rightOperand)
+      ) {
+        return null
+      }
+
+      const elapsedMs = elapsedHigh * 0x10000 + elapsedMiddle * 0x100 + elapsedLow
+      if (elapsedMs < 1 || elapsedMs > MAX_SHARED_ELAPSED_MS) {
+        return null
+      }
+
+      results.push({ leftOperand, rightOperand, elapsedMs })
+      offset += QUESTION_BYTES
+    }
+
+    return { version: SHARED_RESULT_VERSION, playerName, results }
   } catch {
     return null
   }

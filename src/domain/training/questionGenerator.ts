@@ -17,6 +17,43 @@ const QUESTION_CATEGORIES: readonly QuestionCategory[] = [
 
 type QuestionOperands = Pick<TrainingQuestion, 'leftOperand' | 'rightOperand'>
 
+export function isTrainingOperand(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 99
+}
+
+export function deriveQuestionMetadata(
+  leftOperand: number,
+  rightOperand: number,
+): Pick<TrainingQuestion, 'answer' | 'onesCarry' | 'threeDigits' | 'category'> | null {
+  if (!isTrainingOperand(leftOperand) || !isTrainingOperand(rightOperand)) {
+    return null
+  }
+
+  const answer = leftOperand + rightOperand
+  const operandsAreSingleDigit = leftOperand <= 9 && rightOperand <= 9
+  const operandsAreTwoDigits = leftOperand >= 10 && rightOperand >= 10
+  const onesCarry = (leftOperand % 10) + (rightOperand % 10) >= 10
+  const threeDigits = answer >= 100
+
+  if (operandsAreSingleDigit && answer <= 9) {
+    return { answer, onesCarry, threeDigits, category: 'single-digit' }
+  }
+
+  if (!operandsAreTwoDigits) {
+    return null
+  }
+
+  const category: QuestionCategory = threeDigits
+    ? onesCarry
+      ? 'three-digit-ones-carry'
+      : 'three-digit-no-ones-carry'
+    : onesCarry
+      ? 'two-digit-carry'
+      : 'two-digit-no-carry'
+
+  return { answer, onesCarry, threeDigits, category }
+}
+
 export function hasConsecutiveSameDigits(answer: number): boolean {
   const digits = String(answer)
 
@@ -34,25 +71,7 @@ export function matchesCategory(
   rightOperand: number,
   category: QuestionCategory,
 ): boolean {
-  const answer = leftOperand + rightOperand
-  const operandsAreSingleDigit =
-    leftOperand >= 1 && leftOperand <= 9 && rightOperand >= 1 && rightOperand <= 9
-  const operandsAreTwoDigits =
-    leftOperand >= 10 && leftOperand <= 99 && rightOperand >= 10 && rightOperand <= 99
-  const onesCarry = (leftOperand % 10) + (rightOperand % 10) >= 10
-
-  switch (category) {
-    case 'single-digit':
-      return operandsAreSingleDigit && answer <= 9
-    case 'two-digit-no-carry':
-      return operandsAreTwoDigits && answer <= 99 && !onesCarry
-    case 'two-digit-carry':
-      return operandsAreTwoDigits && answer <= 99 && onesCarry
-    case 'three-digit-no-ones-carry':
-      return operandsAreTwoDigits && answer >= 100 && !onesCarry
-    case 'three-digit-ones-carry':
-      return operandsAreTwoDigits && answer >= 100 && onesCarry
-  }
+  return deriveQuestionMetadata(leftOperand, rightOperand)?.category === category
 }
 
 function createCandidates(category: QuestionCategory): QuestionOperands[] {
@@ -94,15 +113,17 @@ export function generateTrainingQuestions(random: RandomSource = Math.random): T
     }
 
     const { leftOperand, rightOperand } = selectedCandidate
-    const answer = leftOperand + rightOperand
+    const metadata = deriveQuestionMetadata(leftOperand, rightOperand)
+
+    if (!metadata) {
+      throw new Error('Selected operands do not form a valid training question')
+    }
 
     return {
       questionIndex: questionIndex + 1,
       leftOperand,
       rightOperand,
-      answer,
-      onesCarry: (leftOperand % 10) + (rightOperand % 10) >= 10,
-      threeDigits: answer >= 100,
+      ...metadata,
       category,
     }
   })
