@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { onBeforeMount, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { mdiCheckCircleOutline, mdiCloseCircleOutline } from '@mdi/js'
+import { mdiCheckCircleOutline, mdiCloseCircleOutline, mdiVolumeHigh, mdiVolumeOff } from '@mdi/js'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 
 import NumberPad from '../components/NumberPad.vue'
+import { useSoundPreference } from '../composables/useSoundPreference'
 import { triggerHaptic } from '../domain/training/haptics'
 import { formatElapsedTime } from '../domain/training/resultAnalyzer'
+import { createTrainingSoundPlayer } from '../domain/training/sounds'
 import { CORRECT_FEEDBACK_MS, useTrainingStore } from '../stores/training'
 
 const router = useRouter()
 const trainingStore = useTrainingStore()
+const { soundEnabled, toggleSound } = useSoundPreference()
+const sounds = createTrainingSoundPlayer(() => soundEnabled.value)
 const {
   questions,
   currentAnswer,
@@ -79,18 +83,35 @@ onBeforeUnmount(() => {
 function inputDigit(digit: string, withHaptic = true) {
   if (!canAnswer.value) return
   trainingStore.appendDigit(digit)
+  playSound(sounds.playDigitSound)
   if (withHaptic) triggerHaptic('digit')
 }
 
 function deleteDigit(withHaptic = true) {
   if (!canAnswer.value) return
+  const hadDigit = currentAnswer.value.length > 0
   trainingStore.deleteLastDigit()
+  if (hadDigit) playSound(sounds.playDeleteSound)
   if (withHaptic) triggerHaptic('delete')
 }
 
 function submitAnswer(withHaptic = true) {
   const result = trainingStore.submitAnswer()
-  if (withHaptic && (result === 'correct' || result === 'incorrect')) triggerHaptic(result)
+  if (result !== 'correct' && result !== 'incorrect') return
+
+  playSound(sounds.playSubmitSound)
+  playSound(result === 'correct' ? sounds.playCorrectSound : sounds.playIncorrectSound)
+  if (withHaptic) triggerHaptic(result)
+}
+
+function playSound(play: () => void): void {
+  if (!soundEnabled.value) return
+
+  try {
+    play()
+  } catch {
+    // The sound service is defensive too; keep game flow safe if an implementation changes.
+  }
 }
 
 function isTextInputTarget(target: EventTarget | null) {
@@ -128,13 +149,23 @@ function handleKeydown(event: KeyboardEvent) {
             <p class="question-count font-weight-bold mb-0">
               問題 {{ currentQuestionNumber }} / {{ totalQuestions }}
             </p>
-            <p
-              class="elapsed-time mb-0"
-              aria-label="現在の問題の経過時間"
-              data-testid="elapsed-time"
-            >
-              {{ (elapsedMs / 1000).toFixed(1) }}秒
-            </p>
+            <div class="training-status-actions">
+              <p
+                class="elapsed-time mb-0"
+                aria-label="現在の問題の経過時間"
+                data-testid="elapsed-time"
+              >
+                {{ (elapsedMs / 1000).toFixed(1) }}秒
+              </p>
+              <v-btn
+                class="sound-toggle"
+                :icon="soundEnabled ? mdiVolumeHigh : mdiVolumeOff"
+                variant="text"
+                :aria-label="soundEnabled ? '効果音をオフにする' : '効果音をオンにする'"
+                :aria-pressed="soundEnabled"
+                @click="toggleSound"
+              />
+            </div>
           </div>
           <div
             class="progress-segments"
@@ -232,6 +263,19 @@ function handleKeydown(event: KeyboardEvent) {
 
 .question-count {
   font-size: clamp(1rem, 4.5vw, 1.125rem);
+}
+
+.training-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sound-toggle {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
 }
 
 .problem-area {
