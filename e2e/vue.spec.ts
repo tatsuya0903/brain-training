@@ -39,6 +39,28 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth)
 }
 
+async function expectCalculatorNumberPad(page: Page) {
+  const labels = await page
+    .getByLabel('回答テンキー')
+    .getByRole('button')
+    .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')))
+
+  expect(labels).toEqual([
+    '7を入力',
+    '8を入力',
+    '9を入力',
+    '4を入力',
+    '5を入力',
+    '6を入力',
+    '1を入力',
+    '2を入力',
+    '3を入力',
+    '1文字削除',
+    '0を入力',
+    '回答を決定',
+  ])
+}
+
 test('completes, shares, restores the result, and starts a new training', async ({
   page,
   context,
@@ -72,6 +94,14 @@ test('completes, shares, restores the result, and starts a new training', async 
   await expect(page.getByLabel('トレーニング進捗')).toHaveAttribute('aria-valuetext', '1 / 10')
   await expect(page.locator('.progress-segment.active')).toHaveCount(1)
   await expect(page.getByTestId('elapsed-time')).toHaveText(/^\d+\.\d秒\s*$/u)
+  await expectCalculatorNumberPad(page)
+
+  await page.getByRole('button', { name: '7を入力' }).click()
+  await expect(page.getByLabel('入力中の回答')).toHaveText('7')
+  await page.getByRole('button', { name: '1文字削除' }).click()
+  await page.getByRole('button', { name: '1を入力' }).click()
+  await expect(page.getByLabel('入力中の回答')).toHaveText('1')
+  await page.getByRole('button', { name: '1文字削除' }).click()
 
   await page.getByRole('button', { name: '0を入力' }).click()
   await page.getByRole('button', { name: '回答を決定' }).click()
@@ -274,6 +304,7 @@ test('keeps mobile training controls and results within representative viewports
     await expect(page.getByLabel('入力中の回答')).toBeVisible()
     await expect(page.getByLabel('回答テンキー')).toBeVisible()
     await expect(page.locator('input')).toHaveCount(0)
+    await expectCalculatorNumberPad(page)
     await expectNoHorizontalOverflow(page)
 
     const numberPadBox = await page.getByLabel('回答テンキー').boundingBox()
