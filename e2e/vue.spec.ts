@@ -2,19 +2,32 @@ import { test, expect, type Page } from '@playwright/test'
 
 import { encodeSharedResult } from '../src/domain/sharing/sharedResultCodec'
 
-async function answerCurrentQuestion(page: Page) {
+async function currentCorrectAnswer(page: Page) {
   const problem = await page.getByTestId('problem').innerText()
   const match = problem.match(/(\d+)\s*\+\s*(\d+)/)
 
   expect(match).not.toBeNull()
+  return Number(match![1]) + Number(match![2])
+}
 
-  const answer = Number(match![1]) + Number(match![2])
+async function answerCurrentQuestion(page: Page) {
+  const answer = await currentCorrectAnswer(page)
 
   for (const digit of String(answer)) {
     await page.getByRole('button', { name: `${digit}を入力` }).click()
   }
 
   await page.getByRole('button', { name: '回答を決定' }).click()
+}
+
+async function answerCurrentQuestionWithKeyboard(page: Page, numpad = false) {
+  const answer = await currentCorrectAnswer(page)
+
+  for (const digit of String(answer)) {
+    await page.keyboard.press(numpad ? `Numpad${digit}` : digit)
+  }
+
+  await page.keyboard.press(numpad ? 'NumpadEnter' : 'Enter')
 }
 
 async function expectCorrectFeedback(page: Page) {
@@ -221,6 +234,54 @@ test('completes, shares, restores the result, and starts a new training', async 
   await expect(page.getByText('問題 1 / 10')).toBeVisible()
   await expect(page.getByTestId('problem')).toBeVisible()
   await expect(page.getByLabel('入力中の回答')).toHaveText('未入力')
+})
+
+test('completes training with regular and numpad keyboard controls', async ({ page }) => {
+  await page.goto('./#/')
+  await page.getByRole('button', { name: 'トレーニング開始' }).click()
+  await expect(page.getByText('問題 1 / 10')).toBeVisible()
+
+  await page.keyboard.press('7')
+  await page.keyboard.press('5')
+  await page.keyboard.press('3')
+  await expect(page.getByLabel('入力中の回答')).toHaveText('753')
+  await page.keyboard.press('Backspace')
+  await expect(page.getByLabel('入力中の回答')).toHaveText('75')
+  await page.keyboard.press('Backspace')
+  await page.keyboard.press('Backspace')
+  await expect(page.getByLabel('入力中の回答')).toHaveText('未入力')
+
+  const firstProblem = await page.getByTestId('problem').innerText()
+  await page.keyboard.press('0')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('answer-feedback')).toContainText('不正解')
+  await expect(page.getByTestId('problem')).toHaveText(firstProblem)
+  await expect(page.getByLabel('入力中の回答')).toHaveText('未入力')
+
+  await answerCurrentQuestionWithKeyboard(page)
+  await expectCorrectFeedback(page)
+  await expect(page.getByText('問題 2 / 10')).toBeVisible()
+
+  await answerCurrentQuestionWithKeyboard(page, true)
+  await expectCorrectFeedback(page)
+  await expect(page.getByText('問題 3 / 10')).toBeVisible()
+
+  for (let questionNumber = 3; questionNumber <= 9; questionNumber += 1) {
+    await answerCurrentQuestionWithKeyboard(page, questionNumber % 2 === 0)
+    await expectCorrectFeedback(page)
+    await expect(page.getByText(`問題 ${questionNumber + 1} / 10`)).toBeVisible()
+  }
+  await answerCurrentQuestionWithKeyboard(page, true)
+  await expectCorrectFeedback(page)
+
+  await expect(page).toHaveURL(/#\/result$/)
+  await expect(page.getByRole('heading', { name: 'トレーニング結果' })).toBeVisible()
+
+  await page.getByRole('button', { name: '成績を共有' }).click()
+  const playerName = page.getByLabel('プレイヤー名')
+  await playerName.fill('123')
+  await playerName.press('Backspace')
+  await expect(playerName).toHaveValue('12')
 })
 
 test('keeps completed local results within target mobile viewports', async ({ page }) => {

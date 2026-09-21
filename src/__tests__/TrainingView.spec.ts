@@ -41,6 +41,23 @@ async function tap(name: string) {
   await wrapper.get(`[aria-label="${name}"]`).trigger('click')
 }
 
+async function pressKey(
+  key: string,
+  init: Omit<KeyboardEventInit, 'key'> = {},
+  target: EventTarget = window,
+) {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+  target.dispatchEvent(event)
+  await nextTick()
+  return event
+}
+
+async function typeAnswer(value: number, numpad = false) {
+  for (const digit of String(value)) {
+    await pressKey(digit, { code: numpad ? `Numpad${digit}` : `Digit${digit}` })
+  }
+}
+
 async function answer(value: number) {
   for (const digit of String(value)) await tap(`${digit}を入力`)
   await tap('回答を決定')
@@ -75,6 +92,148 @@ describe('TrainingView feedback and number pad', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     vi.useRealTimers()
+  })
+
+  it('accepts every regular digit key', async () => {
+    await mountTrainingView()
+
+    for (const digit of '0123456789') {
+      const event = await pressKey(digit, { code: `Digit${digit}` })
+      expect(event.defaultPrevented).toBe(true)
+    }
+
+    expect(answerText()).toBe('0123456789')
+  })
+
+  it('accepts every numpad digit key through the same digit mapping', async () => {
+    await mountTrainingView()
+
+    for (const digit of '0123456789') {
+      const event = await pressKey(digit, { code: `Numpad${digit}` })
+      expect(event.defaultPrevented).toBe(true)
+    }
+
+    expect(answerText()).toBe('0123456789')
+  })
+
+  it.each([
+    ['regular Enter', 'Enter'],
+    ['numpad Enter', 'NumpadEnter'],
+  ])('submits the answer with %s', async (_label, code) => {
+    const { store } = await mountTrainingView()
+    await typeAnswer(store.currentQuestion!.answer, code === 'NumpadEnter')
+
+    const event = await pressKey('Enter', { code })
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(store.results).toHaveLength(1)
+    expect(feedbackText()).toContain('正解！')
+  })
+
+  it('handles Backspace and ignores repeated digit, Enter, and Backspace events', async () => {
+    const { store } = await mountTrainingView()
+    await pressKey('7', { code: 'Digit7' })
+    await pressKey('5', { code: 'Digit5' })
+    await pressKey('3', { code: 'Digit3' })
+
+    expect((await pressKey('1', { code: 'Digit1', repeat: true })).defaultPrevented).toBe(true)
+    expect((await pressKey('Enter', { code: 'Enter', repeat: true })).defaultPrevented).toBe(true)
+    expect(
+      (await pressKey('Backspace', { code: 'Backspace', repeat: true })).defaultPrevented,
+    ).toBe(true)
+    expect(answerText()).toBe('753')
+    expect(store.results).toHaveLength(0)
+
+    const backspace = await pressKey('Backspace', { code: 'Backspace' })
+    expect(backspace.defaultPrevented).toBe(true)
+    expect(answerText()).toBe('75')
+  })
+
+  it('keeps empty Enter harmless and leaves unrelated and text-input keys alone', async () => {
+    const { store } = await mountTrainingView()
+
+    expect((await pressKey('Enter', { code: 'Enter' })).defaultPrevented).toBe(true)
+    expect(store.results).toHaveLength(0)
+    expect(store.currentQuestionNumber).toBe(1)
+    expect(store.questionStartedAt).toBe(100)
+    expect(feedbackText()).toBe('')
+    expect((await pressKey('a', { code: 'KeyA' })).defaultPrevented).toBe(false)
+
+    const input = document.createElement('input')
+    document.body.append(input)
+    const inputEvent = await pressKey('7', { code: 'Digit7' }, input)
+    input.remove()
+    expect(inputEvent.defaultPrevented).toBe(false)
+    expect(answerText()).toBe('未入力')
+  })
+
+  it('blocks all keyboard actions during correct feedback without queuing next input', async () => {
+    const { store } = await mountTrainingView()
+    await typeAnswer(store.currentQuestion!.answer)
+    await pressKey('Enter', { code: 'Enter' })
+    expect(feedbackText()).toContain('正解！')
+
+    const appendDigit = vi.spyOn(store, 'appendDigit')
+    const deleteLastDigit = vi.spyOn(store, 'deleteLastDigit')
+    const submitAnswer = vi.spyOn(store, 'submitAnswer')
+    await pressKey('1', { code: 'Digit1' })
+    await pressKey('Enter', { code: 'Enter' })
+    await pressKey('Backspace', { code: 'Backspace' })
+
+    expect(appendDigit).not.toHaveBeenCalled()
+    expect(deleteLastDigit).not.toHaveBeenCalled()
+    expect(submitAnswer).not.toHaveBeenCalled()
+    expect(store.currentAnswer).toBe('')
+    expect(store.results).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(CORRECT_FEEDBACK_MS)
+    expect(store.currentQuestionNumber).toBe(2)
+    expect(store.currentAnswer).toBe('')
+  })
+
+  it('allows immediate keyboard retry after an incorrect answer', async () => {
+    const { store } = await mountTrainingView()
+    const question = wrapper.get('[data-testid="problem"]').text()
+    const startedAt = store.questionStartedAt
+    await pressKey('0', { code: 'Digit0' })
+    await pressKey('Enter', { code: 'Enter' })
+
+    expect(feedbackText()).toContain('不正解')
+    expect(store.currentAnswer).toBe('')
+    expect(store.questionStartedAt).toBe(startedAt)
+    expect(wrapper.get('[data-testid="problem"]').text()).toBe(question)
+
+    await typeAnswer(store.currentQuestion!.answer, true)
+    await pressKey('Enter', { code: 'NumpadEnter' })
+    expect(feedbackText()).toContain('正解！')
+    expect(store.results).toHaveLength(1)
+  })
+
+  it('uses the same handlers for keyboard and NumberPad without adding keyboard haptics', async () => {
+    const vibrate = vi.fn<(pattern: VibratePattern) => boolean>().mockReturnValue(true)
+    vi.stubGlobal('navigator', { vibrate })
+    await mountTrainingView()
+
+    await pressKey('7', { code: 'Digit7' })
+    await tap('5を入力')
+    await pressKey('Backspace', { code: 'Backspace' })
+    await tap('3を入力')
+
+    expect(answerText()).toBe('73')
+    expect(vibrate.mock.calls).toEqual([[10], [10]])
+  })
+
+  it('removes the listener on unmount and does not duplicate it after remount', async () => {
+    const first = await mountTrainingView()
+    wrapper.unmount()
+    await pressKey('4', { code: 'Digit4' })
+    expect(first.store.currentAnswer).toBe('')
+
+    const second = await mountTrainingView()
+    const appendDigit = vi.spyOn(second.store, 'appendDigit')
+    await pressKey('4', { code: 'Digit4' })
+    expect(appendDigit).toHaveBeenCalledOnce()
+    expect(second.store.currentAnswer).toBe('4')
   })
 
   it('inputs multiple digits and deletes only the last digit', async () => {

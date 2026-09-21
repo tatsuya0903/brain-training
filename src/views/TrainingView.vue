@@ -67,28 +67,55 @@ function synchronizeQuestion() {
 watch([questions, currentQuestionIndex, feedback], synchronizeQuestion, { flush: 'post' })
 onMounted(() => {
   mounted = true
+  window.addEventListener('keydown', handleKeydown)
   synchronizeQuestion()
 })
 onBeforeUnmount(() => {
   mounted = false
+  window.removeEventListener('keydown', handleKeydown)
   stopUpdates()
 })
 
-function inputDigit(digit: string) {
+function inputDigit(digit: string, withHaptic = true) {
   if (!canAnswer.value) return
   trainingStore.appendDigit(digit)
-  triggerHaptic('digit')
+  if (withHaptic) triggerHaptic('digit')
 }
 
-function deleteDigit() {
+function deleteDigit(withHaptic = true) {
   if (!canAnswer.value) return
   trainingStore.deleteLastDigit()
-  triggerHaptic('delete')
+  if (withHaptic) triggerHaptic('delete')
 }
 
-function submitAnswer() {
+function submitAnswer(withHaptic = true) {
   const result = trainingStore.submitAnswer()
-  if (result === 'correct' || result === 'incorrect') triggerHaptic(result)
+  if (withHaptic && (result === 'correct' || result === 'incorrect')) triggerHaptic(result)
+}
+
+function isTextInputTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !==
+      null
+  )
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (isTextInputTarget(event.target)) return
+
+  const digit = /^\d$/u.test(event.key) ? event.key : undefined
+  const isEnter = event.key === 'Enter'
+  const isBackspace = event.key === 'Backspace'
+
+  if (digit === undefined && !isEnter && !isBackspace) return
+
+  event.preventDefault()
+  if (event.repeat || !canAnswer.value) return
+
+  if (digit !== undefined) inputDigit(digit, false)
+  else if (isEnter) submitAnswer(false)
+  else deleteDigit(false)
 }
 </script>
 
