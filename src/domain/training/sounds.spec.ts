@@ -76,9 +76,9 @@ describe('training sounds', () => {
     expect(AudioContextMock.instances).toHaveLength(1)
     const context = AudioContextMock.instances[0]!
     expect(context.oscillators.map((oscillator) => oscillator.type)).toEqual([
-      'sine',
       'triangle',
-      'sine',
+      'triangle',
+      'triangle',
       'sine',
       'sine',
       'square',
@@ -88,10 +88,20 @@ describe('training sounds', () => {
       context.oscillators.map(
         (oscillator) => oscillator.frequency.setValueAtTime.mock.calls[0]?.[0],
       ),
-    ).toEqual([880, 300, 520, 660, 880, 220, 175])
+    ).toEqual([880, 420, 600, 660, 880, 400, 300])
     expect(
       context.gains.map((gain) => gain.gain.linearRampToValueAtTime.mock.calls[0]?.[0]),
-    ).toEqual([0.025, 0.035, 0.04, 0.06, 0.07, 0.055, 0.06])
+    ).toEqual([0.1, 0.12, 0.12, 0.16, 0.18, 0.16, 0.18])
+    expect(
+      context.oscillators.map((oscillator) =>
+        Math.round((oscillator.start.mock.calls[0]?.[0] ?? 0) * 1000),
+      ),
+    ).toEqual([10000, 10000, 10000, 10030, 10085, 10030, 10095])
+    expect(
+      context.oscillators.map((oscillator) =>
+        Math.round((oscillator.stop.mock.calls[0]?.[0] ?? 0) * 1000),
+      ),
+    ).toEqual([10040, 10045, 10030, 10085, 10160, 10085, 10165])
   })
 
   it('does not initialize AudioContext while sound is disabled', () => {
@@ -135,7 +145,7 @@ describe('training sounds', () => {
     expect(context.oscillators).toHaveLength(0)
 
     await vi.waitFor(() => expect(context.oscillators).toHaveLength(1))
-    expect(context.oscillators[0]!.frequency.setValueAtTime).toHaveBeenCalledWith(300, 10)
+    expect(context.oscillators[0]!.frequency.setValueAtTime).toHaveBeenCalledWith(420, 10)
   })
 
   it('absorbs resume and node failures', async () => {
