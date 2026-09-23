@@ -9,16 +9,16 @@ type Tone = {
 }
 
 const SOUND_PATTERNS: Record<SoundKind, readonly Tone[]> = {
-  digit: [{ frequency: 880, duration: 0.04, gain: 0.025, type: 'sine' }],
-  delete: [{ frequency: 300, duration: 0.045, gain: 0.035, type: 'triangle' }],
-  submit: [{ frequency: 520, duration: 0.025, gain: 0.04, type: 'sine' }],
+  digit: [{ frequency: 880, duration: 0.04, gain: 0.1, type: 'triangle' }],
+  delete: [{ frequency: 420, duration: 0.045, gain: 0.12, type: 'triangle' }],
+  submit: [{ frequency: 600, duration: 0.03, gain: 0.12, type: 'triangle' }],
   correct: [
-    { frequency: 660, duration: 0.055, gain: 0.06, offset: 0.03, type: 'sine' },
-    { frequency: 880, duration: 0.075, gain: 0.07, offset: 0.085, type: 'sine' },
+    { frequency: 660, duration: 0.055, gain: 0.16, offset: 0.03, type: 'sine' },
+    { frequency: 880, duration: 0.075, gain: 0.18, offset: 0.085, type: 'sine' },
   ],
   incorrect: [
-    { frequency: 220, duration: 0.055, gain: 0.055, offset: 0.03, type: 'square' },
-    { frequency: 175, duration: 0.07, gain: 0.06, offset: 0.095, type: 'square' },
+    { frequency: 400, duration: 0.055, gain: 0.16, offset: 0.03, type: 'square' },
+    { frequency: 300, duration: 0.07, gain: 0.18, offset: 0.095, type: 'square' },
   ],
 }
 
