@@ -103,7 +103,7 @@ async function shareResult() {
   }
 
   isSharing.value = true
-  const outcome = await shareResultUrl(url, {
+  const outcome = await shareResultUrl(url, analysis.value.totalMs, {
     share: navigator.share?.bind(navigator),
     writeClipboard: navigator.clipboard?.writeText.bind(navigator.clipboard),
   })

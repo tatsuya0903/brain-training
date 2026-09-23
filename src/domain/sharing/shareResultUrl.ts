@@ -1,3 +1,5 @@
+import { formatElapsedTime } from '../training/resultAnalyzer'
+
 export type ShareResultUrlOutcome = 'shared' | 'copied' | 'cancelled' | 'failed'
 
 export interface ShareResultUrlDependencies {
@@ -15,14 +17,16 @@ function isShareCancellation(error: unknown): boolean {
 
 export async function shareResultUrl(
   url: string,
+  totalMs: number,
   dependencies: ShareResultUrlDependencies,
 ): Promise<ShareResultUrlOutcome> {
+  const text = `暗算トレーニングの記録：${formatElapsedTime(totalMs)}\n${url}`
+
   if (dependencies.share) {
     try {
       await dependencies.share({
         title: '暗算トレーニングの結果',
-        text: '暗算トレーニングの結果を共有します。',
-        url,
+        text,
       })
       return 'shared'
     } catch (error: unknown) {
@@ -37,7 +41,7 @@ export async function shareResultUrl(
   }
 
   try {
-    await dependencies.writeClipboard(url)
+    await dependencies.writeClipboard(text)
     return 'copied'
   } catch {
     return 'failed'
