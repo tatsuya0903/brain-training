@@ -138,8 +138,13 @@ test('completes, shares, restores the result, and starts a new training', async 
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: {
-        writeText: async (url: string) => {
-          ;(window as Window & { __sharedResultUrl?: string }).__sharedResultUrl = url
+        writeText: async (text: string) => {
+          const state = window as Window & {
+            __sharedResultText?: string
+            __sharedResultUrl?: string
+          }
+          state.__sharedResultText = text
+          state.__sharedResultUrl = text.split('\n')[1]
         },
       },
     })
@@ -261,7 +266,15 @@ test('completes, shares, restores the result, and starts a new training', async 
   const sharedUrl = await page.evaluate(
     () => (window as Window & { __sharedResultUrl?: string }).__sharedResultUrl,
   )
+  const sharedText = await page.evaluate(
+    () => (window as Window & { __sharedResultText?: string }).__sharedResultText,
+  )
   expect(sharedUrl).toBeTruthy()
+  expect(sharedText).toBe(
+    `暗算トレーニングの記録：${displayedResult.total.toFixed(2)}秒\n${sharedUrl}`,
+  )
+  expect(sharedText).not.toContain('\n\n')
+  expect(sharedText).not.toContain('暗算トレーニングの結果を共有します。')
   expect(sharedUrl).toContain('/brain-training/#/result?s=')
   expect(sharedUrl).not.toContain('?share=')
 

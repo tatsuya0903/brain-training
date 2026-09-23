@@ -330,11 +330,22 @@ describe('ResultView', () => {
     expect(share).toHaveBeenCalledOnce()
     expect(writeText).not.toHaveBeenCalled()
     expect(body().text()).toContain('成績を共有しました')
-    const sharedUrlValue = share.mock.calls[0]![0].url
+    const shareData = share.mock.calls[0]![0]
+    expect(shareData.text).toEqual(expect.any(String))
+    expect(shareData).not.toHaveProperty('url')
+
+    if (typeof shareData.text !== 'string') {
+      throw new TypeError('Web Share text was not a string')
+    }
+
+    const [recordLine, sharedUrlValue] = shareData.text.split('\n')
+    expect(recordLine).toBe('暗算トレーニングの記録：14.60秒')
+    expect(shareData.text).not.toContain('\n\n')
+    expect(shareData.text).not.toContain('暗算トレーニングの結果を共有します。')
     expect(sharedUrlValue).toEqual(expect.any(String))
 
-    if (typeof sharedUrlValue !== 'string') {
-      throw new TypeError('Web Share URL was not a string')
+    if (!sharedUrlValue) {
+      throw new TypeError('Web Share text did not contain a URL')
     }
 
     const sharedUrl = new URL(sharedUrlValue)
@@ -362,6 +373,10 @@ describe('ResultView', () => {
     await flushPromises()
 
     expect(writeText).toHaveBeenCalledOnce()
+    const [recordLine, sharedUrl] = writeText.mock.calls[0]![0].split('\n')
+    expect(recordLine).toBe('暗算トレーニングの記録：14.60秒')
+    expect(sharedUrl).toContain('#/result?s=')
+    expect(writeText.mock.calls[0]![0]).not.toContain('\n\n')
     expect(body().text()).toContain('共有URLをコピーしました')
   })
 
